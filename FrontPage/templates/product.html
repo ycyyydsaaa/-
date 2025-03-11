@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>眼科疾病智能诊断系统</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css">
+    <style>
+        /* 全局样式，设置过渡效果和字体 */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            transition: all 0.3s ease;
+        }
+
+        /* 玻璃拟态效果 */
+        .glassmorphism {
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            box-shadow: 0 8px 32px 0 rgba(124, 125, 141, 0.501);
+        }
+
+        /* 按钮悬停缩放效果 */
+        .hover-scale {
+            transition: transform 0.3s ease;
+        }
+        .hover-scale:hover {
+            transform: scale(1.05);
+        }
+
+        /* 输入框和选择框样式 */
+        input[type="text"],
+        input[type="number"],
+        select {
+            transition: border-color 0.3s ease;
+        }
+        input[type="text"]:focus,
+        input[type="number"]:focus,
+        select:focus {
+            border-color: #22c55e;
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.25);
+        }
+
+        /* 输入框和选择框鼠标悬停效果 */
+        input[type="text"]:hover,
+        input[type="number"]:hover,
+        select:hover {
+            border-color: #22c55e;
+        }
+
+        /* 动画效果，淡入 */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .fade-in {
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        /* 模态框样式 */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0, 0, 0, 0.4);
+        }
+
+        /* 在 modal-content 上也加 glassmorphism */
+        .modal-content {
+            margin: 5% auto;
+            padding: 60px;
+            width: 80%;
+            height: 80%;
+            position: relative;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+
+            /* 玻璃拟态 */
+            background: rgba(255, 255, 255, 0.3);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 32px 0 rgba(124, 125, 141, 0.501);
+        }
+
+        /* 模态框内图片样式 */
+        .modal-content img {
+            object-fit: contain;
+            width: 100%;
+            height: 100%;
+            max-width: 100%;
+            max-height: 100%;
+            transform-origin: top left;
+        }
+
+        /* 关闭按钮，右上角 */
+        .close {
+            position: absolute;
+            top: 8px;
+            right: 12px;
+            color: #ffffff;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .close:hover,
+        .close:focus {
+            color: black;
+            text-decoration: none;
+        }
+
+        /* 避免系统功能部分与上面重叠 */
+        #services {
+            margin-top: 30px;
+        }
+
+        /* 缩放按钮样式，移动到左上角 */
+        .zoom-btn-container {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            display: flex;
+            gap: 0.5rem;
+        }
+        .zoom-btn {
+            background-color: #f3f4f6;
+            color: #374151;
+            padding: 0.5rem 1rem;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            margin: 0.25rem 0;
+            transition: background-color 0.3s ease;
+        }
+        .zoom-btn:hover {
+            background-color: #e5e7eb;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-100">
+    <header class="bg-green-900 text-white p-4 flex justify-between items-center rounded-lg shadow-md fade-in">
+        <h1 class="text-2xl font-bold">眼科疾病智能诊断系统</h1>
+        <nav>
+            <ul class="flex space-x-4">
+                <li><a href="#home" class="hover:underline">首页</a></li>
+                <li><a href="#diagnosis" class="hover:underline">智能诊断</a></li>
+                <li><a href="#services" class="hover:underline">服务介绍</a></li>
+                <li><a href="#contact" class="hover:underline">我们</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main class="container mx-auto mt-6 p-4">
+        <!-- 给 #diagnosis 加 glassmorphism 类 -->
+        <section id="diagnosis" class="bg-white glassmorphism shadow-md p-6 rounded-lg fade-in">
+            <h2 class="text-xl font-semibold mb-4">上传眼底影像进行智能诊断</h2>
+            <form id="upload-form" class="space-y-4">
+                <!-- 医保卡号、性别、年龄输入栏 -->
+                <div class="grid grid-cols-3 gap-4">
+                    <!-- 医保卡号 -->
+                    <div>
+                        <label for="insurance-id" class="block text-lg font-medium mb-2">医保卡号</label>
+                        <input type="text" id="insurance-id" name="insurance-id" class="border p-2 rounded w-full"
+                            placeholder="医保卡号" required>
+                    </div>
+                    <!-- 性别选择 -->
+                    <div>
+                        <label for="gender" class="block text-lg font-medium mb-2">性别</label>
+                        <select id="gender" class="border p-2 rounded w-full">
+                            <option value="男">男</option>
+                            <option value="女">女</option>
+                        </select>
+                    </div>
+                    <!-- 输入年龄 -->
+                    <div>
+                        <label for="age" class="block text-lg font-medium mb-2">年龄</label>
+                        <input type="number" id="age" class="border p-2 rounded w-full" placeholder="年龄" required min="0">
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <!-- 左眼 -->
+                    <div class="border border-gray-300 p-4 rounded-lg shadow-sm bg-gray-50">
+                        <label for="left-eye-image" class="block text-lg font-medium mb-2">上传左眼眼底图片</label>
+                        <input type="file" id="left-eye-image" accept="image/*"
+                            class="hidden" onchange="previewLeftImage(event)">
+                        <button type="button"
+                            class="w-full bg-gray-300 text-gray-800 py-2 px-4 rounded-lg hover:bg-gray-400 transition hover-scale"
+                            onclick="document.getElementById('left-eye-image').click();">
+                            选择文件
+                        </button>
+                        <div id="left-image-preview" class="mt-4 hidden">
+                            <h3 class="text-lg font-medium">左眼预览</h3>
+                            <img id="left-preview" class="mt-2 rounded shadow-md max-w-full h-auto border border-gray-400">
+                            <!-- 调整按钮样式 -->
+                            <button type="button"
+                                class="mt-2 inline-block bg-gray-300 text-gray-800 py-2 px-4 rounded-lg hover:bg-gray-400 transition hover-scale text-left"
+                                onclick="openModal('left-modal', 'left-preview')">
+                                放大查看
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 右眼 -->
+                    <div class="border border-gray-300 p-4 rounded-lg shadow-sm bg-gray-50">
+                        <label for="right-eye-image" class="block text-lg font-medium mb-2">上传右眼眼底图片</label>
+                        <input type="file" id="right-eye-image" accept="image/*"
+                            class="hidden" onchange="previewRightImage(event)">
+                        <button type="button"
+                            class="w-full bg-gray-300 text-gray-8 py-2 px-4 rounded-lg hover:bg-gray-400 transition hover-scale"
+                            onclick="document.getElementById('right-eye-image').click();">
+                            选择文件
+                        </button>
+                        <div id="right-image-preview" class="mt-4 hidden">
+                            <h3 class="text-lg font-medium">右眼预览</h3>
+                            <img id="right-preview" class="mt-2 rounded shadow-md max-w-full h-auto border border-gray-400">
+                            <!-- 调整按钮样式 -->
+                            <button type="button"
+                                class="mt-2 inline-block bg-gray-300 text-gray-800 py-2 px-4 rounded-lg hover:bg-gray-400 transition hover-scale text-left"
+                                onclick="openModal('right-modal', 'right-preview')">
+                                放大查看
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 按钮提交（占满整行，居中对齐） -->
+                <button type="submit"
+                    class="bg-green-600 text-white py-3 w-full rounded-lg shadow-md text-lg font-semibold text-center hover:bg-green-700 transition duration-300 hover-scale">
+                    提交分析
+                </button>
+            </form>
+            <!-- 诊断结果显示 -->
+            <div id="result-section" class="mt-6 p-4 bg-gray-200 rounded hidden fade-in">
+                <h3 class="text-lg font-medium">诊断结果</h3>
+                <p id="diagnosis-result" class="mt-2 text-gray-800">正在分析...</p>
+                <div id="heatmap-section" class="mt-4 hidden">
+                    <h3 class="text-lg font-medium">热分析结果</h3>
+                    <img id="heatmap" class="mt-2 rounded shadow-md max-w-full h-auto" />
+                </div>
+                <div id="lesion-section" class="mt-4 hidden">
+                    <h3 class="text-lg font-medium">预测疗效位置</h3>
+                    <img id="lesion-map" class="mt-2 rounded shadow-md max-w-full h-auto" />
+                </div>
+            </div>
+        </section>
+
+        <!-- 给 #services 加 glassmorphism 类 -->
+        <section id="services" class="glassmorphism bg-white shadow-md p-6 rounded-lg fade-in mt-6">
+            <h2 class="text-xl font-semibold mb-4">系统功能</h2>
+            <ul class="list-disc pl-6">
+                <li>眼底影像自动分析</li>
+                <li>糖尿病预测疾病、青光眼等疾病检测</li>
+                <li>详细诊断报告生成</li>
+                <li>眼底热力图生成</li>
+            </ul>
+        </section>
+    </main>
+
+    <footer class="bg-green-900 text-white text-center p-4 mt-6 rounded-lg shadow-md fade-in">
+        <p>© 2025 眼科疾病智能诊断系统 | 版权所有</p>
+    </footer>
+
+    <!-- 左眼模态框 -->
+    <div id="left-modal" class="modal">
+        <div class="modal-content">
+            <!-- 关闭按钮：右上角 -->
+            <span class="close" onclick="closeModal('left-modal')">&times;</span>
+
+            <!-- 放大/缩小按钮：左上角 -->
+            <div class="zoom-btn-container">
+                <button class="zoom-btn" onclick="zoomImage('left-modal-img', 1.2)">放大</button>
+                <button class="zoom-btn" onclick="zoomImage('left-modal-img', 0.8)">缩小</button>
+            </div>
+
+            <img id="left-modal-img">
+        </div>
+    </div>
+
+    <!-- 右眼模态框 -->
+    <div id="right-modal" class="modal">
+        <div class="modal-content">
+            <!-- 关闭按钮：右上角 -->
+            <span class="close" onclick="closeModal('right-modal')">&times;</span>
+
+            <!-- 放大/缩小按钮：左上角 -->
+            <div class="zoom-btn-container">
+                <button class="zoom-btn" onclick="zoomImage('right-modal-img', 1.2)">放大</button>
+                <button class="zoom-btn" onclick="zoomImage('right-modal-img', 0.8)">缩小</button>
+            </div>
+
+            <img id="right-modal-img">
+        </div>
+    </div>
+
+    <script>
+        function previewLeftImage(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function (e) {
+                    document.getElementById('left-preview').src = e.target.result;
+                    document.getElementById('left-image-preview').classList.remove('hidden');
+                }
+                reader.readAsDataURL(file);
+            }
+        }
+
+        function previewRightImage(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function (e) {
+                    document.getElementById('right-preview').src = e.target.result;
+                    document.getElementById('right-image-preview').classList.remove('hidden');
+                }
+                reader.readAsDataURL(file);
+            }
+        }
+
+        function openModal(modalId, imgId) {
+            const modal = document.getElementById(modalId);
+            const img = document.getElementById(imgId);
+            const modalImg = document.getElementById(modalId + '-img');
+            modalImg.src = img.src;
+            modalImg.style.transform = 'scale(1)';
+            modal.style.display = "block";
+        }
+
+        function closeModal(modalId) {
+            const modal = document.getElementById(modalId);
+            modal.style.display = "none";
+        }
+
+        function zoomImage(imgId, scaleFactor) {
+            const img = document.getElementById(imgId);
+            const currentScale = parseFloat(img.style.transform.match(/scale\(([^)]+)\)/)?.[1]) || 1;
+            const newScale = currentScale * scaleFactor;
+            img.style.transform = `scale(${newScale})`;
+        }
+
+        document.getElementById('upload-form').addEventListener('submit', function (event) {
+            const ageInput = document.getElementById('age');
+            const age = parseInt(ageInput.value, 10);
+            if (isNaN(age) || age < 0) {
+                alert('年龄必须是一个非负整数，请重新输入。');
+                ageInput.focus();
+                event.preventDefault();
+                return;
+            }
+
+            event.preventDefault();
+            // 获取用户填写的表单数据
+            const insuranceId = document.getElementById('insurance-id').value;
+            const gender = document.getElementById('gender').value;
+            const leftEyeImage = document.getElementById('left-eye-image').files[0];
+            const rightEyeImage = document.getElementById('right-eye-image').files[0];
+
+            // 创建 FormData 对象
+            let formData = new FormData();
+            formData.append("insurance-id", insuranceId);
+            formData.append("gender", gender);
+            formData.append("age", age);
+            formData.append("left-eye-image", leftEyeImage);
+            formData.append("right-eye-image", rightEyeImage);
+
+            // 发送 AJAX 请求到 Flask 前端
+            fetch("/upload", {
+                method: "POST",
+                body: formData
+            })
+              .then(response => response.json())
+              .then(data => {
+                    console.log("上传:", data);
+                    // 在页面上显示上传的诊断信息
+                    document.getElementById('result-section').classList.remove('hidden');
+                    document.getElementById('diagnosis-result').textContent = "诊断结果: " + data.data.disease;
+                    // 图像显示和其他返回数据
+                })
+              .catch(error => {
+                    console.error('Error:', error);
+                });
+        });
+    </script>
+</body>
+</html>
