@@ -17,6 +17,7 @@ from tqdm import tqdm
 from torch.cuda.amp import autocast, GradScaler
 from pytorch_grad_cam import GradCAM
 from pytorch_grad_cam.utils.image import show_cam_on_image
+from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 import numpy as np
 import cv2
 import logging
@@ -34,13 +35,11 @@ EPOCHS = 30
 LR = 1e-4
 WARMUP_EPOCHS = 5
 
-
 def custom_collate(batch):
     batch = [item for item in batch if item is not None]
     if len(batch) == 0:
         return None
     return torch.utils.data.dataloader.default_collate(batch)
-
 
 class WarmupCosineLR(LRScheduler):
     def __init__(self, optimizer, warmup_epochs=5, total_epochs=30):
@@ -53,7 +52,6 @@ class WarmupCosineLR(LRScheduler):
             return [base_lr * (self.last_epoch + 1) / self.warmup for base_lr in self.base_lrs]
         progress = (self.last_epoch - self.warmup) / (self.total - self.warmup)
         return [base_lr * 0.5 * (1 + math.cos(math.pi * progress)) for base_lr in self.base_lrs]
-
 
 class EMA:
     def __init__(self, model, decay=0.999):
@@ -84,7 +82,6 @@ class EMA:
             if param.requires_grad:
                 param.data = self.backup[name]
         self.backup = {}
-
 
 def evaluate(model, dataloader, device, disease_cols):
     model.eval()
@@ -128,11 +125,20 @@ def evaluate(model, dataloader, device, disease_cols):
                             std = np.array([0.229, 0.224, 0.225])
                             img = (img * std + mean).clip(0, 1)
                             for idx in positive_indices:
-                                target_category = idx.item()
-                                disease_name = disease_cols[target_category]
-                                grayscale_cam = grad_cam(input_tensor=grad_input, target_category=target_category)
-                                visualization = show_cam_on_image(img, grayscale_cam[0], use_rgb=True)
-                                cv2.imwrite(f"gradcam_batch_{batch_idx}_disease_{disease_name}.png", visualization * 255)
+                                try:  # ========== 异常捕获开始 ==========
+                                    target_category = idx.item()
+                                    disease_name = disease_cols[target_category]
+                                    # 生成GradCAM热力图
+                                    targets = [ClassifierOutputTarget(target_category)]
+                                    grayscale_cam = grad_cam(input_tensor=grad_input, targets=targets)
+                                    visualization = show_cam_on_image(img, grayscale_cam[0], use_rgb=True)
+                                    cv2.imwrite(f"gradcam_batch_{batch_idx}_disease_{disease_name}.png", visualization * 255)
+                                except Exception as e:
+                                    # 打印错误信息但继续执行
+                                    tqdm.write(f"生成疾病 {disease_name} 热力图失败: {str(e)}")
+                                    import traceback
+                                    traceback.print_exc()  # 打印详细堆栈信息（调试时使用）
+                                # ========== 异常捕获结束 ==========
                         else:
                             tqdm.write("Batch 0 无疾病标签，未生成 GradCAM 热力图")
 
@@ -189,9 +195,8 @@ def evaluate(model, dataloader, device, disease_cols):
 
     return full_match_accuracy, accuracy_per_disease, micro_f1, macro_f1
 
-
 def train():
-    # 数据集划分与加载
+    # 数据集划分与加载（保持不变）
     train_excel_path, test_excel_path = split_dataset(EXCEL_PATH, test_size=0.2, random_state=42,
                                                       disease_cols=disease_cols)
     train_dataset = FundusDataset(excel_path=train_excel_path, img_root=IMG_ROOT, disease_cols=disease_cols,
@@ -213,7 +218,7 @@ def train():
             labels = batch['labels']
             if labels[:, 0].sum() > 0 and labels[labels[:, 0] == 1, 1:].sum() > 0:
                 tqdm.write(f"数据警告: 'N' = 1 时其他标签非零: {labels[labels[:, 0] == 1].tolist()}")
-            break  # 只检查第一个非空 batch，避免过多输出
+            break
     tqdm.write("检查完成")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -232,13 +237,14 @@ def train():
     assert A.dim() == 2 and A.shape[0] == A.shape[1] == len(
         disease_cols), f"邻接矩阵形状 {A.shape} 与疾病数量 {len(disease_cols)} 不匹配"
 
-    pseudo_labels = kg.generate_pseudo_labels(df, device=device).float()
+    # 初始化模型以生成伪标签
+    model = MultiModalNet(disease_cols, kg_embeddings).to(device)
+    pseudo_labels = kg.generate_pseudo_labels(df, train_dataloader, model, device=device)
     pseudo_dataset = FundusDataset(excel_path=train_excel_path, img_root=IMG_ROOT, disease_cols=disease_cols,
                                    phase='train')
     pseudo_dataloader = DataLoader(pseudo_dataset, batch_size=BATCH_SIZE, shuffle=True,
                                    num_workers=4, pin_memory=True, collate_fn=custom_collate)
 
-    model = MultiModalNet(disease_cols, kg_embeddings).to(device)
     model_pseudo = MultiModalNet(disease_cols, kg_embeddings).to(device)
     pos_weights = torch.tensor([min(1 / (1 - df[d].mean()), 10.0) for d in disease_cols], device=device)
     criterion_cls = nn.BCEWithLogitsLoss(pos_weight=pos_weights)
@@ -342,7 +348,9 @@ def train():
                 paired_img = batch['paired_image'].to(device)
                 text_feature = batch['text_feature'].to(device)
                 meta = batch['meta'].to(device)
-                labels = pseudo_labels.expand(BATCH_SIZE, -1).to(device).float()
+                start_idx = batch_idx * BATCH_SIZE
+                end_idx = min(start_idx + BATCH_SIZE, len(pseudo_labels))
+                labels = pseudo_labels[start_idx:end_idx].to(device)  # [batch_size, num_diseases]
 
                 with autocast():
                     logits, seg_output, kg_logits, _, _ = model_pseudo(paired_img, text_feature, meta, None)
@@ -408,7 +416,6 @@ def train():
     torch.save(model.state_dict(), save_path)
     ema.restore()
     tqdm.write(f"模型已保存到 {save_path}")
-
 
 if __name__ == "__main__":
     try:

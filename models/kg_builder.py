@@ -290,109 +290,95 @@ class MedicalKG:
         print(f"adjacency matrix shape: {A.shape}")
         return A
 
-    def generate_pseudo_labels(self, df, num_steps=100, lr=1e-3, device='cuda'):
-        print("Running updated generate_pseudo_labels - Version 2025-03-14")
-        print(f"generate_pseudo_labels: self.disease_cols = {self.disease_cols}")
+    def generate_pseudo_labels(self, df, dataloader, model, num_steps=100, lr=1e-3, device='cuda'):
+        print("Running sample-level generate_pseudo_labels - Version 2025-03-14")
         if self.disease_cols is None:
             raise ValueError("disease_cols 未初始化，请先调用 build_kg 方法")
 
         num_diseases = len(self.disease_cols)
-        if num_diseases == 0:
-            raise ValueError("disease_cols 为空，无法生成伪标签")
-        print(f"num_diseases: {num_diseases}")
+        num_samples = len(df)
+        print(f"num_diseases: {num_diseases}, num_samples: {num_samples}")
 
-        if df is None or df.empty:
-            raise ValueError("输入的 DataFrame 为 None 或为空，无法生成伪标签")
-        print(f"df shape: {df.shape}")
-
-        missing_cols = [col for col in self.disease_cols if col not in df.columns]
-        if missing_cols:
-            raise ValueError(f"DataFrame 缺少以下列: {missing_cols}")
-
+        # 获取图结构
         all_symptoms = self.get_all_symptoms()
         num_symptoms = len(all_symptoms)
         num_nodes = num_diseases + num_symptoms
-        print(f"num_symptoms: {num_symptoms}, num_nodes: {num_nodes}")
+        edge_index = self._get_edge_index().to(device)
 
+        # 计算疾病共现矩阵
         pos_weights = torch.tensor([min(1 / (df[d].mean() + 1e-6), 10.0) for d in self.disease_cols], device=device)
         pos_weights = pos_weights / pos_weights.mean()
-        print(f"pos_weights: {pos_weights}")
-
-        # 初始化 disease_cooccur
         disease_cooccur = torch.zeros((num_diseases, num_diseases), device=device)
-        print(f"Initial disease_cooccur shape: {disease_cooccur.shape}, is None: {disease_cooccur is None}")
-
         for idx, row in df.iterrows():
             labels = torch.tensor(row[self.disease_cols].values.astype(float), device=device)
             weighted_labels = labels * pos_weights
-            outer_product = weighted_labels.outer(weighted_labels)
-            disease_cooccur += outer_product
-            if idx % 100 == 0:
-                print(
-                    f"After {idx} rows, disease_cooccur sum: {disease_cooccur.sum().item()}, is None: {disease_cooccur is None}")
-
-        if disease_cooccur is None:
-            raise ValueError("disease_cooccur 在初始化或更新后变为 None")
-        if torch.isnan(disease_cooccur).any() or torch.isinf(disease_cooccur).any():
-            print(f"Invalid disease_cooccur after update: {disease_cooccur}")
-            raise ValueError("disease_cooccur 包含 nan 或 inf")
-
-        # 平滑处理
+            disease_cooccur += weighted_labels.outer(weighted_labels)
         smooth_factor = 0.1
         denominator = disease_cooccur.sum() + num_diseases * smooth_factor
-        print(f"denominator: {denominator}")
         if denominator == 0:
-            print("Warning: denominator is 0, adding small epsilon")
             denominator = torch.tensor(num_diseases * 1e-6, device=device)
-
-        print(f"Before smoothing, disease_cooccur: {disease_cooccur}")
         disease_cooccur = (disease_cooccur + smooth_factor) / denominator
-        print(f"After smoothing, disease_cooccur: {disease_cooccur}, is None: {disease_cooccur is None}")
-
-        if disease_cooccur is None:
-            raise ValueError("平滑处理后 disease_cooccur 变为 None")
-        if torch.isnan(disease_cooccur).any() or torch.isinf(disease_cooccur).any():
-            print(f"Invalid disease_cooccur after smoothing: {disease_cooccur}")
-            raise ValueError("平滑处理后 disease_cooccur 包含 nan 或 inf")
-
-        # 设置对角线为 1
-        print(f"Before fill_diagonal_, disease_cooccur: {disease_cooccur}, is None: {disease_cooccur is None}")
         disease_cooccur.fill_diagonal_(1.0)
-        print(f"After fill_diagonal_, disease_cooccur: {disease_cooccur}, is None: {disease_cooccur is None}")
 
-        # GCN 输入和训练（保持不变，但增加检查）
-        x = torch.eye(num_nodes).to(device)
-        edge_index = self._get_edge_index().to(device)
-        data = Data(x=x, edge_index=edge_index)
+        # 初始化 GCN
         gcn = GCNConv(num_nodes, num_diseases).to(device)
         optimizer = optim.Adam(gcn.parameters(), lr=lr)
         criterion = nn.BCEWithLogitsLoss()
 
+        # 提取样本特征
+        model.eval()
+        pseudo_labels = torch.zeros((num_samples, num_diseases), device=device)
+        true_labels = torch.tensor(df[self.disease_cols].values.astype(float), device=device)
+        feature_list = []
+
+        with torch.no_grad():
+            for batch_idx, batch in enumerate(dataloader):
+                if batch is None:
+                    continue
+                paired_img = batch['paired_image'].to(device)
+                text_feature = batch['text_feature'].to(device)
+                meta = batch['meta'].to(device)
+                start_idx = batch_idx * dataloader.batch_size
+                end_idx = min(start_idx + paired_img.size(0), num_samples)
+
+                img_features, _, _, _, _ = model(paired_img, text_feature, meta, None)  # [batch_size, 256]
+                feature_list.append(img_features)
+                pseudo_labels[start_idx:end_idx] = true_labels[start_idx:end_idx]  # 初始化为真实标签
+
+        features = torch.cat(feature_list, dim=0)  # [num_samples, 256]
+
+        # 投影特征到疾病维度
+        feature_projector = nn.Linear(256, num_diseases).to(device)
+        sample_features = feature_projector(features)  # [num_samples, num_diseases]
+
+        # GCN 训练
+        x = torch.eye(num_nodes).to(device)
+        data = Data(x=x, edge_index=edge_index)
         for step in range(num_steps):
             optimizer.zero_grad()
-            out = gcn(data.x, data.edge_index)
-            target = disease_cooccur.to(device)
-            loss = criterion(out[:num_diseases], target)
-            if torch.isnan(out).any() or torch.isinf(out).any():
-                print(f"Invalid GCN output at step {step}: {out}")
-                raise ValueError("GCN output contains nan or inf")
-            if torch.isnan(loss).any() or torch.isinf(loss).any():
-                print(f"Invalid GCN loss at step {step}: {loss}")
-                raise ValueError("GCN loss contains nan or inf")
+            out = gcn(data.x, data.edge_index)  # [num_nodes, num_diseases]
+            loss = criterion(out[:num_diseases], disease_cooccur)
             loss.backward()
             optimizer.step()
+            if step % 20 == 0:
+                print(f"Step {step}, loss: {loss.item()}")
 
-        base_threshold = 0.5
-        thresholds = base_threshold / pos_weights
-        thresholds = torch.clamp(thresholds, min=0.1, max=0.9)
+        # 生成样本级伪标签
+        with torch.no_grad():
+            no_label_count = (true_labels.sum(dim=1) == 0).sum().item()
+            print(f"无标签样本数量: {no_label_count} / {num_samples}")
+            for idx in range(num_samples):
+                if true_labels[idx].sum() == 0:  # 无标签样本
+                    feature_vector = sample_features[idx]  # [num_diseases]
+                    x_sample = disease_cooccur + 0.3 * feature_vector.unsqueeze(0)  # [num_diseases, num_diseases]
+                    out = gcn(x_sample, edge_index[:num_diseases, :])  # [num_diseases, num_diseases]
+                    probs = torch.sigmoid(out.diag())  # [num_diseases]
+                    thresholds = torch.clamp(0.5 / pos_weights, min=0.1, max=0.9)
+                    pseudo_labels[idx] = (probs > thresholds).float()
+                    if pseudo_labels[idx, 0] == 1:  # 'N' 排他性
+                        pseudo_labels[idx, 1:] = 0
 
-        probs = torch.sigmoid(out[:num_diseases]).diag()
-        pseudo_labels = (probs > thresholds).float()  # 修复5: 将布尔张量转为浮点
-        print(f"Disease positive ratios: {[df[d].mean() for d in self.disease_cols]}")
-        print(f"Pos weights: {pos_weights}")
-        print(f"Thresholds: {thresholds}")
-        print(f"Probabilities: {probs}")
-        print(f"Pseudo labels: {pseudo_labels}")
-        print(f"Weighted smoothed disease co-occurrence matrix:\n {disease_cooccur}")
-        print(f"Pseudo labels dtype: {pseudo_labels.dtype}")
+        print(f"Pseudo labels shape: {pseudo_labels.shape}")
+        print(f"Sample pseudo labels (first 5): {pseudo_labels[:5].tolist()}")
+        torch.cuda.empty_cache()
         return pseudo_labels
