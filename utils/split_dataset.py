@@ -18,9 +18,11 @@ def split_dataset(excel_path, test_size=0.2, random_state=42, disease_cols=None)
     if 'paired_image' not in df.columns and 'id' not in df.columns:
         raise ValueError("Excel 文件中必须包含 'paired_image' 或 'id' 列，用于构造图像文件名。")
 
+    # 提取 case_id，适配新命名规则
     if 'paired_image' in df.columns:
         df = df.dropna(subset=['paired_image'])
-        df['case_id'] = df['paired_image'].astype(str).str.split('_').str[0]
+        # 假设 paired_image 可能为 'paired_0.png' 或 '0.png'，提取数字部分
+        df['case_id'] = df['paired_image'].astype(str).str.extract(r'(\d+)')[0]
     else:
         df = df.dropna(subset=['id'])
         df['case_id'] = df['id'].astype(str)
@@ -59,4 +61,3 @@ def split_dataset(excel_path, test_size=0.2, random_state=42, disease_cols=None)
         print(test_df[disease_cols].mean())
 
     return train_path, test_path
-
