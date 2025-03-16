@@ -196,11 +196,8 @@ def evaluate(model, dataloader, device, disease_cols):
     return full_match_accuracy, accuracy_per_disease, micro_f1, macro_f1
 
 def train():
-    # 数据集划分与加载（保持不变）
-    train_excel_path, test_excel_path = split_dataset(EXCEL_PATH, test_size=0.2, random_state=42,
-                                                      disease_cols=disease_cols)
-    train_dataset = FundusDataset(excel_path=train_excel_path, img_root=IMG_ROOT, disease_cols=disease_cols,
-                                  phase='train')
+    train_excel_path, test_excel_path = split_dataset(EXCEL_PATH, test_size=0.2, random_state=42, disease_cols=disease_cols)
+    train_dataset = FundusDataset(excel_path=train_excel_path, img_root=IMG_ROOT, disease_cols=disease_cols, phase='train')
     test_dataset = FundusDataset(excel_path=test_excel_path, img_root=IMG_ROOT, disease_cols=disease_cols, phase='test')
 
     train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,
@@ -211,7 +208,6 @@ def train():
     tqdm.write(f"训练数据集大小: {len(train_dataset)}")
     tqdm.write(f"测试数据集大小: {len(test_dataset)}")
 
-    # 检查数据集中的 'N' 排他性
     tqdm.write("检查训练数据中的 'N' 排他性...")
     for batch in train_dataloader:
         if batch is not None:
@@ -234,19 +230,16 @@ def train():
 
     kg_embeddings = kg.generate_disease_embeddings().to(device)
     A = kg.get_adjacency_matrix().to(device)
-    assert A.dim() == 2 and A.shape[0] == A.shape[1] == len(
-        disease_cols), f"邻接矩阵形状 {A.shape} 与疾病数量 {len(disease_cols)} 不匹配"
+    assert A.dim() == 2 and A.shape[0] == A.shape[1] == len(disease_cols), f"邻接矩阵形状 {A.shape} 与疾病数量 {len(disease_cols)} 不匹配"
 
-    # 初始化模型以生成伪标签
     model = MultiModalNet(disease_cols, kg_embeddings).to(device)
     pseudo_labels = kg.generate_pseudo_labels(df, train_dataloader, model, device=device)
-    pseudo_dataset = FundusDataset(excel_path=train_excel_path, img_root=IMG_ROOT, disease_cols=disease_cols,
-                                   phase='train')
+    pseudo_dataset = FundusDataset(excel_path=train_excel_path, img_root=IMG_ROOT, disease_cols=disease_cols, phase='train')
     pseudo_dataloader = DataLoader(pseudo_dataset, batch_size=BATCH_SIZE, shuffle=True,
                                    num_workers=4, pin_memory=True, collate_fn=custom_collate)
 
     model_pseudo = MultiModalNet(disease_cols, kg_embeddings).to(device)
-    pos_weights = torch.tensor([min(1 / (1 - df[d].mean()), 10.0) for d in disease_cols], device=device)
+    pos_weights = torch.tensor([min(1 / (1 - df[d].mean()), 50.0) for d in disease_cols], device=device)  # 调整正类权重
     criterion_cls = nn.BCEWithLogitsLoss(pos_weight=pos_weights)
     optimizer = optim.Adam(model.parameters(), lr=LR)
     optimizer_pseudo = optim.Adam(model_pseudo.parameters(), lr=LR)
@@ -269,6 +262,7 @@ def train():
         running_cls_loss = 0.0
         running_graph_loss = 0.0
         running_penalty = 0.0
+        running_text_weight_loss = 0.0
         valid_batches_main = 0
         valid_batches_pseudo = 0
 
@@ -284,6 +278,10 @@ def train():
                 meta = batch['meta'].to(device)
                 labels = batch['labels'].to(device).float()
 
+                # 随机丢弃文本特征（30% 概率）
+                if torch.rand(1).item() < 0.5:
+                    text_feature = torch.zeros_like(text_feature)
+
                 with autocast():
                     logits, seg_output, kg_logits, _, _ = model(paired_img, text_feature, meta, None)
                     if logits is None or kg_logits is None:
@@ -296,16 +294,17 @@ def train():
                         loss_cls += 0.1 * penalty
 
                     loss_graph = torch.tensor(0.0, device=device)
-                    valid_pairs = [(m, n) for m in range(len(disease_cols)) for n in range(m + 1, len(disease_cols)) if
-                                   A[m, n]]
+                    valid_pairs = [(m, n) for m in range(len(disease_cols)) for n in range(m + 1, len(disease_cols)) if A[m, n]]
                     if valid_pairs:
                         m_indices, n_indices = zip(*valid_pairs)
-                        m_indices, n_indices = torch.tensor(m_indices, device=device), torch.tensor(n_indices,
-                                                                                                    device=device)
+                        m_indices, n_indices = torch.tensor(m_indices, device=device), torch.tensor(n_indices, device=device)
                         diff_logits = logits[:, m_indices] - logits[:, n_indices]
                         diff_kg = kg_logits[:, m_indices] - kg_logits[:, n_indices]
                         loss_graph = ((diff_logits - diff_kg).pow(2).mean(dim=0)).sum() * 0.01 / len(valid_pairs)
-                    total_loss = loss_cls + loss_graph
+
+                    # 增强正则化：增大 text_weight 的惩罚
+                    text_weight_penalty = 0.8* torch.abs(model.text_weight)  # L1 正则化，系数从 0.01 增至 0.1
+                    total_loss = loss_cls + loss_graph + text_weight_penalty
 
                 scaler.scale(total_loss).backward()
                 scaler.step(optimizer)
@@ -316,25 +315,21 @@ def train():
                 running_cls_loss += loss_cls.item()
                 running_graph_loss += loss_graph.item()
                 running_penalty += penalty.item() if penalty > 0 else 0.0
-                valid_batches_main += 1
+                running_text_weight_loss += text_weight_penalty.item()
 
                 epoch_bar.set_postfix({
                     "Batch Loss": f"{total_loss.item():.4f}",
                     "Cls Loss": f"{loss_cls.item():.4f}",
                     "Graph Loss": f"{loss_graph.item():.4f}",
                     "Penalty": f"{penalty.item():.4f}",
+                    "Text Weight Loss": f"{text_weight_penalty.item():.4f}",
+                    "Text Weight": f"{model.text_weight.item():.4f}",
                     "LR": f"{scheduler.get_last_lr()[0]:.6f}"
                 })
                 epoch_bar.update(1)
 
             except Exception as e:
                 tqdm.write(f"Error in main loop at epoch {epoch}, batch {batch_idx}: {str(e)}")
-                import traceback
-                traceback.print_exc()
-                optimizer.zero_grad(set_to_none=True)
-                scaler.update()
-                scaler = GradScaler()
-                torch.cuda.empty_cache()
                 epoch_bar.update(1)
                 raise
 
@@ -350,7 +345,11 @@ def train():
                 meta = batch['meta'].to(device)
                 start_idx = batch_idx * BATCH_SIZE
                 end_idx = min(start_idx + BATCH_SIZE, len(pseudo_labels))
-                labels = pseudo_labels[start_idx:end_idx].to(device)  # [batch_size, num_diseases]
+                labels = pseudo_labels[start_idx:end_idx].to(device)
+
+                # 随机丢弃文本特征（30% 概率）
+                if torch.rand(1).item() < 0.3:
+                    text_feature = torch.zeros_like(text_feature)
 
                 with autocast():
                     logits, seg_output, kg_logits, _, _ = model_pseudo(paired_img, text_feature, meta, None)
@@ -363,24 +362,23 @@ def train():
                         penalty = torch.mean(torch.sigmoid(logits[normal_samples, 1:]) ** 2)
                         loss_cls += 0.1 * penalty
 
-                scaler.scale(loss_cls).backward()
+                    # 对伪标签模型也应用正则化
+                    text_weight_penalty = 0.1 * torch.abs(model_pseudo.text_weight)
+                    total_loss = loss_cls + text_weight_penalty
+
+                scaler.scale(total_loss).backward()
                 scaler.step(optimizer_pseudo)
                 scaler.update()
 
-                running_loss += loss_cls.item()
+                running_loss += total_loss.item()
                 running_cls_loss += loss_cls.item()
                 running_penalty += penalty.item() if penalty > 0 else 0.0
+                running_text_weight_loss += text_weight_penalty.item()
                 valid_batches_pseudo += 1
                 epoch_bar.update(1)
 
             except Exception as e:
                 tqdm.write(f"Error in pseudo loop at epoch {epoch}, batch {batch_idx}: {str(e)}")
-                import traceback
-                traceback.print_exc()
-                optimizer_pseudo.zero_grad(set_to_none=True)
-                scaler.update()
-                scaler = GradScaler()
-                torch.cuda.empty_cache()
                 epoch_bar.update(1)
                 raise
 
@@ -391,21 +389,22 @@ def train():
             avg_cls_loss = running_cls_loss / total_valid_batches
             avg_graph_loss = running_graph_loss / valid_batches_main if valid_batches_main > 0 else 0.0
             avg_penalty = running_penalty / total_valid_batches
+            avg_text_weight_loss = running_text_weight_loss / total_valid_batches
         else:
-            avg_loss = avg_cls_loss = avg_graph_loss = avg_penalty = 0.0
+            avg_loss = avg_cls_loss = avg_graph_loss = avg_penalty = avg_text_weight_loss = 0.0
 
         tqdm.write(f"Epoch [{epoch + 1}/{EPOCHS}] 完成, Average Loss: {avg_loss:.4f}, "
                    f"Classification Loss: {avg_cls_loss:.4f}, Graph Loss: {avg_graph_loss:.4f}, "
-                   f"Penalty: {avg_penalty:.4f}")
+                   f"Penalty: {avg_penalty:.4f}, Text Weight Loss: {avg_text_weight_loss:.4f}, "
+                   f"Text Weight: {model.text_weight.item():.4f}")
 
         scheduler.step()
         scheduler_pseudo.step()
         torch.cuda.empty_cache()
 
-    tqdm.write("开始测试集评估...")
+    tqdm.write("开始测试集评估（无文本特征）...")
     ema.apply_shadow()
-    full_match_accuracy, accuracy_per_disease, micro_f1, macro_f1 = evaluate(model, test_dataloader, device,
-                                                                             disease_cols)
+    full_match_accuracy, accuracy_per_disease, micro_f1, macro_f1 = evaluate(model, test_dataloader, device, disease_cols)
     ema.restore()
 
     project_root = r"D:\Toolbox App\PyCharm Professional\jbr\bin\D\寒风冷雨不知眠\PycharmProjects\eye_image_processing"
@@ -419,7 +418,7 @@ def train():
 
 if __name__ == "__main__":
     try:
-        train()
+         train()
     except Exception as e:
         import traceback
         tqdm.write(f"训练过程中发生错误: {str(e)[:500]}")

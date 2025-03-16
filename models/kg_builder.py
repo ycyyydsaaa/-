@@ -325,7 +325,7 @@ class MedicalKG:
         optimizer = optim.Adam(gcn.parameters(), lr=lr)
         criterion = nn.BCEWithLogitsLoss()
 
-        # 提取样本特征
+        # 提取样本特征（关键修正部分）
         model.eval()
         pseudo_labels = torch.zeros((num_samples, num_diseases), device=device)
         true_labels = torch.tensor(df[self.disease_cols].values.astype(float), device=device)
@@ -341,38 +341,44 @@ class MedicalKG:
                 start_idx = batch_idx * dataloader.batch_size
                 end_idx = min(start_idx + paired_img.size(0), num_samples)
 
-                img_features, _, _, _, _ = model(paired_img, text_feature, meta, None)  # [batch_size, 256]
+                # ========== 修正特征提取逻辑 ==========
+                # 提取中间特征 (FPN输出)
+                _, _, _, feature_maps, _ = model(paired_img, text_feature, meta, None)
+                # 全局平均池化 [batch_size, 256, H, W] → [batch_size, 256]
+                img_features = feature_maps.mean([2, 3])
+                # =====================================
+
                 feature_list.append(img_features)
-                pseudo_labels[start_idx:end_idx] = true_labels[start_idx:end_idx]  # 初始化为真实标签
+                pseudo_labels[start_idx:end_idx] = true_labels[start_idx:end_idx]
 
         features = torch.cat(feature_list, dim=0)  # [num_samples, 256]
 
         # 投影特征到疾病维度
-        feature_projector = nn.Linear(256, num_diseases).to(device)
-        sample_features = feature_projector(features)  # [num_samples, num_diseases]
+        feature_projector = nn.Linear(256, num_diseases).to(device)  # 输入维度256 → 输出维度8
+        sample_features = feature_projector(features)  # [num_samples, 8]
 
-        # GCN 训练
+        # GCN 训练（保持不变）
         x = torch.eye(num_nodes).to(device)
         data = Data(x=x, edge_index=edge_index)
         for step in range(num_steps):
             optimizer.zero_grad()
-            out = gcn(data.x, data.edge_index)  # [num_nodes, num_diseases]
+            out = gcn(data.x, data.edge_index)  # [num_nodes, 8]
             loss = criterion(out[:num_diseases], disease_cooccur)
             loss.backward()
             optimizer.step()
             if step % 20 == 0:
                 print(f"Step {step}, loss: {loss.item()}")
 
-        # 生成样本级伪标签
+        # 生成样本级伪标签（保持不变）
         with torch.no_grad():
             no_label_count = (true_labels.sum(dim=1) == 0).sum().item()
             print(f"无标签样本数量: {no_label_count} / {num_samples}")
             for idx in range(num_samples):
                 if true_labels[idx].sum() == 0:  # 无标签样本
-                    feature_vector = sample_features[idx]  # [num_diseases]
-                    x_sample = disease_cooccur + 0.3 * feature_vector.unsqueeze(0)  # [num_diseases, num_diseases]
-                    out = gcn(x_sample, edge_index[:num_diseases, :])  # [num_diseases, num_diseases]
-                    probs = torch.sigmoid(out.diag())  # [num_diseases]
+                    feature_vector = sample_features[idx]  # [8]
+                    x_sample = disease_cooccur + 0.3 * feature_vector.unsqueeze(0)  # [1,8]
+                    out = gcn(x_sample, edge_index[:num_diseases, :])  # [1,8]
+                    probs = torch.sigmoid(out.diag())  # [8]
                     thresholds = torch.clamp(0.5 / pos_weights, min=0.1, max=0.9)
                     pseudo_labels[idx] = (probs > thresholds).float()
                     if pseudo_labels[idx, 0] == 1:  # 'N' 排他性
