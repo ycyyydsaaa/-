@@ -156,10 +156,10 @@
         <h1 class="text-2xl font-bold">眼科疾病智能诊断系统</h1>
         <nav>
             <ul class="flex space-x-4">
-                <li><a href="#home" class="hover:underline">首页</a></li>
-                <li><a href="#diagnosis" class="hover:underline">智能诊断</a></li>
-                <li><a href="#services" class="hover:underline">服务介绍</a></li>
-                <li><a href="#contact" class="hover:underline">我们</a></li>
+                <li><a href="/" class="hover:underline">返回首页</a></li>
+                <li><a href="#result-section" class="hover:underline">智能诊断结果</a></li>
+                <!-- <li><a href="#services" class="hover:underline">服务介绍</a></li> -->
+                <!-- <li><a href="#contact" class="hover:underline">我们</a></li> -->
             </ul>
         </nav>
     </header>
@@ -167,7 +167,7 @@
     <main class="container mx-auto mt-6 p-4">
         <!-- 给 #diagnosis 加 glassmorphism 类 -->
         <section id="diagnosis" class="bg-white glassmorphism shadow-md p-6 rounded-lg fade-in">
-            <h2 class="text-xl font-semibold mb-4">上传眼底影像进行智能诊断</h2>
+            <h2 class="text-xl font-semibold mb-4">上传单人双眼影像进行智能诊断</h2>
             <form id="upload-form" class="space-y-4">
                 <!-- 医保卡号、性别、年龄输入栏 -->
                 <div class="grid grid-cols-3 gap-4">
@@ -245,7 +245,7 @@
             </form>
             <!-- 诊断结果显示 -->
             <div id="result-section" class="mt-6 p-4 bg-gray-200 rounded hidden fade-in">
-                <h3 class="text-lg font-medium">诊断结果</h3>
+                <h3 class="text-lg font-medium">智能诊断结果</h3>
                 <p id="diagnosis-result" class="mt-2 text-gray-800">正在分析...</p>
                 <div id="heatmap-section" class="mt-4 hidden">
                     <h3 class="text-lg font-medium">热分析结果</h3>
