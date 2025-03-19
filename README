@@ -1,0 +1,4 @@
+运行项目步骤说明：
+1.把FrontPage/app.py里第34行MODEL_API_URL替换为最新的大模型地址。
+2.需要同时运行FrontPage/app.py和ImagePreprocess/ImagePreprocess.py。启动顺序不分先后。
+3.上传的原图片通过相对路径存储在ImagePreprocess/uploads，经过图像预处理后的图片通过相对路径存储在ImagePreprocess/processed/paired里。

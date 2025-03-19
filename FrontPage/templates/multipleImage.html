@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -15,11 +16,12 @@
             font-size: 16px;
             transition: all 0.3s ease;
         }
+
        .btn-primary:hover {
             background-color: #065f46;
         }
 
-       /* 上传区域（固定大小） */
+        /* 上传区域（固定大小） */
        .upload-box {
             /* border: 2px dashed #047857; */
             background-color: #ffffff;
@@ -34,15 +36,29 @@
             justify-content: center;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
-       .upload-box:hover {
-            background-color: #f0fdfa;
-        }
+
        .upload-box:hover {
             background-color: #f0fdfa;
         }
 
-        /* 诊断结果区 */
-       .image-group {
+        /* 系统功能介绍区 */
+       .service-box {
+            /* border: 2px dashed #047857; */
+            background-color: #ffffff;
+            padding: 40px;
+            text-align: left;
+            border-radius: 12px;
+            cursor: pointer;
+            width: 100%;
+            height: 200px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        /* 预览区 */
+       .preview-group {
             background-color: white;
             padding: 15px;
             border-radius: 10px;
@@ -64,11 +80,18 @@
             border-radius: 8px;
         }
 
-        /* 诊断结果文本 */
-       .diagnosis {
+        /* 输入表样式 */
+       .input-table {
             margin-top: 10px;
-            font-weight: bold;
-            color: #047857;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+        }
+
+       .input-table input,.input-table select {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
         }
 
         /* 全局样式，设置过渡效果和字体 */
@@ -90,6 +113,7 @@
        .hover-scale {
             transition: transform 0.3s ease;
         }
+
        .hover-scale:hover {
             transform: scale(1.05);
         }
@@ -100,6 +124,7 @@
         select {
             transition: border-color 0.3s ease;
         }
+
         input[type="text"]:focus,
         input[type="number"]:focus,
         select:focus {
@@ -121,11 +146,13 @@
                 opacity: 0;
                 transform: translateY(10px);
             }
+
             to {
                 opacity: 1;
                 transform: translateY(0);
             }
         }
+
        .fade-in {
             animation: fadeIn 0.5s ease-out;
         }
@@ -182,8 +209,8 @@
             font-weight: bold;
             cursor: pointer;
         }
-       .close:hover,
-       .close:focus {
+
+       .close:hover,.close:focus {
             color: black;
             text-decoration: none;
         }
@@ -201,6 +228,7 @@
             display: flex;
             gap: 0.5rem;
         }
+
        .zoom-btn {
             background-color: #f3f4f6;
             color: #374151;
@@ -210,17 +238,33 @@
             margin: 0.25rem 0;
             transition: background-color 0.3s ease;
         }
+
        .zoom-btn:hover {
             background-color: #e5e7eb;
         }
 
+        /* 诊断结果报告盒子 */
+       .diagnosis-report {
+            background-color: #e5e7eb;
+            padding: 15px;
+            border-radius: 10px;
+            /* box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); */
+            text-align: center;
+            width: 100%;
+            margin-top: 10px;
+            display: none;
+        }
+
+        #services {
+            margin-top: 30px;
+        }
     </style>
 </head>
 
 <body class="bg-gray-100">
     <!-- 头部 -->
     <header class="bg-green-900 text-white p-4 flex justify-between items-center rounded-lg shadow-md fade-in">
-        <h1 class="text-2xl font-bold">眼科疾病智能诊断系统</h1>
+        <h1 class="text-2xl font-bold">OphthaAI眼科疾病智能诊断系统</h1>
         <nav>
             <ul class="flex space-x-4">
                 <li><a href="/" class="hover:underline">返回首页</a></li>
@@ -230,92 +274,238 @@
             </ul>
         </nav>
     </header>
- <section class="container mx-auto mt-8 text-center">
+    <section class="container mx-auto mt-8 text-center">
         <h2 class="text-3xl font-semibold text-gray-900" style="font-size: 2.8rem;">上传批量影像进行智能诊断</h2>
     </section>
     <!-- 上传区域（最上方） -->
     <section class="container mx-auto mt-8 p-6">
-        <div class="upload-box" id="upload-box">
+        <div class="upload-box w-full" id="upload-box">
             <p class="text-lg text-gray-700">点击上传批量影像</p>
             <input type="file" id="file-input" multiple class="hidden">
             <button class="btn-primary mt-4" onclick="document.getElementById('file-input').click();">选择文件</button>
         </div>
     </section>
 
-    <!-- 诊断结果区（中间） -->
-    <section class="container mx-auto mt-8 p-6"id="diagnosis">
-        <h2 class="text-2xl font-bold text-gray-800 mb-4 text-center"hidden>智能诊断结果</h2>
-        <div class="space-y-6" id="image-grid">
-            <!-- 这里动态生成图片和诊断结果 -->
+    <!-- 预览区（中间） -->
+    <section class="container mx-auto mt-8 p-6" id="diagnosis">
+        <!-- <h2 class="text-2xl font-bold text-gray-800 mb-4 text-center">预览区</h2> -->
+        <div class="space-y-6" id="preview-grid">
+            <!-- 这里动态生成图片和输入表 -->
+        </div>
+        <br>
+        <br>
+        <!-- 提交分析按钮 -->
+        <button class="bg-green-600 text-white py-3 w-full rounded-lg shadow-md text-lg font-semibold text-center hover:bg-green-700 transition duration-300 hover-scale" id="submit-btn">提交分析</button>
+        <div id="report-grid" style="display: none;">
+            <!-- 这里动态生成诊断结果报告 -->
+        </div>
+    </section>
+    <!-- 功能介绍区域 -->
+    <section class="container mx-auto mt-8 p-6">
+        <div class="service-box w-full" id="service">
+            <h2 class="text-xl font-semibold mb-4">系统功能</h2>
+            <ul class="list-disc pl-6">
+                <li>眼底影像自动分析</li>
+                <li>白内障、青光眼等疾病检测</li>
+                <li>详细诊断报告生成</li>
+                <li>眼底热力图生成</li>
+            </ul>
         </div>
     </section>
 
     <!-- 底部 -->
     <footer class="bg-green-900 text-white text-center p-4 mt-12">
-        <p>© 2025 眼科疾病智能诊断系统 | 版权所有</p>
+        <p>© 2025 OphthaAI眼科疾病智能诊断系统 | 版权所有</p>
     </footer>
 
     <script>
-        document.getElementById('file-input').addEventListener('change', async function (event) {
-            const files = event.target.files;
-            const imageGrid = document.getElementById('image-grid');
-            // 检查上传的图像数量是否为偶数
-            if (files.length % 2!== 0) {
-                alert('上传的图像必须是偶数张，请重新选择！');
-                this.value = ''; // 清空已选文件
-                return;
-            }
-            imageGrid.innerHTML = ''; // 清空之前的内容
+        document.getElementById('file-input').addEventListener('change', function (event) {
+    const files = event.target.files;
+    const previewGrid = document.getElementById('preview-grid');
+    // 检查上传的图像数量是否为偶数
+    if (files.length % 2!== 0) {
+        alert('上传的图像必须是偶数张，请重新选择！');
+        this.value = ''; // 清空已选文件
+        return;
+    }
+    previewGrid.innerHTML = ''; // 清空之前的内容
+    document.getElementById('report-grid').style.display = 'none';
 
-            for (let i = 0; i < files.length; i += 2) {
-                const group = document.createElement('div');
-                group.className = 'image-group p-4';
+    for (let i = 0; i < files.length; i += 2) {
+        const group = document.createElement('div');
+        group.className = 'preview-group p-4';
 
-                const imageWrapper = document.createElement('div');
-                imageWrapper.className = 'image-pair'; // 横向排列
+        const imageWrapper = document.createElement('div');
+        imageWrapper.className = 'image-pair'; // 横向排列
 
-                for (let j = 0; j < 2 && (i + j) < files.length; j++) {
-                    const file = files[i + j];
-                    const reader = new FileReader();
-                    const imgElement = document.createElement('img');
+        for (let j = 0; j < 2 && (i + j) < files.length; j++) {
+            const file = files[i + j];
+            const reader = new FileReader();
+            const imgElement = document.createElement('img');
 
-                    reader.onload = function (e) {
-                        imgElement.src = e.target.result;
-                    };
-                    reader.readAsDataURL(file);
-                    imageWrapper.appendChild(imgElement);
-                }
+            reader.onload = function (e) {
+                imgElement.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+            imageWrapper.appendChild(imgElement);
+        }
 
-                const diagnosisText = document.createElement('p');
-                diagnosisText.className = 'diagnosis mt-4 text-lg';
-                diagnosisText.innerText = `诊断结果: 待处理`;
+        const inputTable = document.createElement('div');
+        inputTable.className = 'input-table';
 
-                group.appendChild(imageWrapper);
-                group.appendChild(diagnosisText);
-                imageGrid.appendChild(group);
-            }
+        const ageInput = document.createElement('input');
+        ageInput.type = 'number';
+        ageInput.placeholder = '年龄';
+        ageInput.required = true;
+        ageInput.min = 0;
+        ageInput.name = 'age';
 
-            const formData = new FormData();
-            for (let i = 0; i < files.length; i++) {
-                formData.append('images', files[i]);
-            }
+        const genderSelect = document.createElement('select');
+        const maleOption = document.createElement('option');
+        maleOption.value = '男';
+        maleOption.textContent = '男';
+        const femaleOption = document.createElement('option');
+        femaleOption.value = '女';
+        femaleOption.textContent = '女';
+        genderSelect.appendChild(maleOption);
+        genderSelect.appendChild(femaleOption);
+        genderSelect.required = true;
+        genderSelect.name = 'gender';
 
-            try {
-                const response = await fetch('/batch_upload', {
-                    method: 'POST',
-                    body: formData
-                });
-                const result = await response.json();
-                if (result.status ==='success') {
-                    // 处理成功响应，例如更新诊断结果区
-                    console.log('批量上传成功');
-                } else {
-                    console.error('批量上传失败:', result.message);
-                }
-            } catch (error) {
-                console.error('网络错误:', error);
-            }
+        inputTable.appendChild(ageInput);
+        inputTable.appendChild(genderSelect);
+
+        // 添加用于显示诊断结果的元素
+        const reportBox = document.createElement('div');
+        reportBox.className = 'diagnosis-report';
+        const reportText = document.createElement('p');
+        reportBox.appendChild(reportText);
+
+        // 添加用于显示热力图的元素
+        const heatmapSection = document.createElement('div');
+        heatmapSection.id = 'heatmap-section';
+        heatmapSection.className = 'hidden';
+        reportBox.appendChild(heatmapSection);
+
+        group.appendChild(imageWrapper);
+        group.appendChild(inputTable);
+        group.appendChild(reportBox);
+        previewGrid.appendChild(group);
+    }
+});
+
+document.getElementById('submit-btn').addEventListener('click', async function () {
+    const previewGroups = document.querySelectorAll('.preview-group');
+    const formData = new FormData();
+    const files = document.getElementById('file-input').files;
+
+    for (let i = 0; i < previewGroups.length; i++) {
+        const ageInput = previewGroups[i].querySelector('input[type="number"]');
+        const genderSelect = previewGroups[i].querySelector('select');
+
+        if (!ageInput.value ||!genderSelect.value) {
+            alert('请确保所有年龄和性别输入表都已填写！');
+            return;
+        }
+
+        if (parseInt(ageInput.value) < 0) {
+            alert('年龄不能为负数，请重新输入！');
+            ageInput.focus();
+            return;
+        }
+
+        // 正确添加年龄和性别数据
+        formData.append('age', ageInput.value);
+        formData.append('gender', genderSelect.value);
+    }
+
+    for (let i = 0; i < files.length; i++) {
+        formData.append('images', files[i]);
+    }
+
+    try {
+        const response = await fetch('/batch_upload', {
+            method: 'POST',
+            body: formData
         });
-    </script>
+        const result = await response.json();
+        if (result.status ==='success') {
+            // 处理成功响应，在对应图片组下方显示诊断结果
+            const results = result.results;
+            previewGroups.forEach((group, index) => {
+                const reportBox = group.querySelector('.diagnosis-report');
+                const reportText = reportBox.querySelector('p');
+                const heatmapSection = reportBox.querySelector('#heatmap-section');
+
+                let diagnosisText = "诊断结果: ";
+                if (results[index] && Array.isArray(results[index].predictions) && results[index].diseases) {
+                    results[index].predictions.forEach((pred, predIndex) => {
+                        if (pred === 1) {
+                            const diseaseCode = results[index].diseases[predIndex];
+                            let diseaseName = "未知疾病";
+                            switch (diseaseCode) {
+                                case 'N':
+                                    diseaseName = "正常";
+                                    break;
+                                case 'D':
+                                    diseaseName = "糖尿病";
+                                    break;
+                                case 'G':
+                                    diseaseName = "青光眼";
+                                    break;
+                                case 'C':
+                                    diseaseName = "白内障";
+                                    break;
+                                case 'A':
+                                    diseaseName = "AMD";
+                                    break;
+                                case 'H':
+                                    diseaseName = "高血压";
+                                    break;
+                                case 'M':
+                                    diseaseName = "近视";
+                                    break;
+                                case 'O':
+                                    diseaseName = "其他疾病/异常";
+                                    break;
+                            }
+                            diagnosisText += diseaseName + " ";
+                        }
+                    });
+                }
+                if (diagnosisText === "诊断结果: ") {
+                    diagnosisText += "未检测到疾病";
+                }
+                reportText.textContent = diagnosisText;
+                reportBox.style.display = 'block';
+
+                if (results[index] && results[index].heatmaps) {
+                    heatmapSection.classList.remove('hidden');
+                    const heatmapObj = results[index].heatmaps;
+                    if (Array.isArray(heatmapObj)) {
+                        heatmapObj.forEach((singleHeatmap) => {
+                            const img = document.createElement('img');
+                            img.src = singleHeatmap.heatmap;
+                            img.alt = `Disease: ${singleHeatmap.disease}`;
+                            img.className = 'rounded shadow-md max-w-full h-auto my-2';
+                            heatmapSection.appendChild(img);
+                        });
+                    } else {
+                        const img = document.createElement('img');
+                        img.src = heatmapObj.heatmap;
+                        img.alt = `Disease: ${heatmapObj.disease}`;
+                        img.className = 'rounded shadow-md max-w-full h-auto my-2';
+                        heatmapSection.appendChild(img);
+                    }
+                }
+            });
+        } else {
+            console.error('批量上传失败:', result.message);
+        }
+    } catch (error) {
+        console.error('网络错误:', error);
+    }
+});
+        </script>
 </body>
 </html>

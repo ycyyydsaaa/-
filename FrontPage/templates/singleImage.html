@@ -13,7 +13,7 @@
         }
 
         /* 玻璃拟态效果 */
-        .glassmorphism {
+       .glassmorphism {
             background: rgba(255, 255, 255, 0.2);
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
@@ -22,10 +22,10 @@
         }
 
         /* 按钮悬停缩放效果 */
-        .hover-scale {
+       .hover-scale {
             transition: transform 0.3s ease;
         }
-        .hover-scale:hover {
+       .hover-scale:hover {
             transform: scale(1.05);
         }
 
@@ -61,12 +61,12 @@
                 transform: translateY(0);
             }
         }
-        .fade-in {
+       .fade-in {
             animation: fadeIn 0.5s ease-out;
         }
 
         /* 模态框样式 */
-        .modal {
+       .modal {
             display: none;
             position: fixed;
             z-index: 1;
@@ -79,7 +79,7 @@
         }
 
         /* 在 modal-content 上也加 glassmorphism */
-        .modal-content {
+       .modal-content {
             margin: 5% auto;
             padding: 60px;
             width: 80%;
@@ -98,7 +98,7 @@
         }
 
         /* 模态框内图片样式 */
-        .modal-content img {
+       .modal-content img {
             object-fit: contain;
             width: 100%;
             height: 100%;
@@ -108,7 +108,7 @@
         }
 
         /* 关闭按钮，右上角 */
-        .close {
+       .close {
             position: absolute;
             top: 8px;
             right: 12px;
@@ -117,8 +117,8 @@
             font-weight: bold;
             cursor: pointer;
         }
-        .close:hover,
-        .close:focus {
+       .close:hover,
+       .close:focus {
             color: black;
             text-decoration: none;
         }
@@ -129,14 +129,14 @@
         }
 
         /* 缩放按钮样式，移动到左上角 */
-        .zoom-btn-container {
+       .zoom-btn-container {
             position: absolute;
             top: 8px;
             left: 8px;
             display: flex;
             gap: 0.5rem;
         }
-        .zoom-btn {
+       .zoom-btn {
             background-color: #f3f4f6;
             color: #374151;
             padding: 0.5rem 1rem;
@@ -145,7 +145,7 @@
             margin: 0.25rem 0;
             transition: background-color 0.3s ease;
         }
-        .zoom-btn:hover {
+       .zoom-btn:hover {
             background-color: #e5e7eb;
         }
     </style>
@@ -153,7 +153,7 @@
 
 <body class="bg-gray-100">
     <header class="bg-green-900 text-white p-4 flex justify-between items-center rounded-lg shadow-md fade-in">
-        <h1 class="text-2xl font-bold">眼科疾病智能诊断系统</h1>
+        <h1 class="text-2xl font-bold">OphthaAI眼科疾病智能诊断系统</h1>
         <nav>
             <ul class="flex space-x-4">
                 <li><a href="/" class="hover:underline">返回首页</a></li>
@@ -246,7 +246,7 @@
             <!-- 诊断结果显示 -->
             <div id="result-section" class="mt-6 p-4 bg-gray-200 rounded hidden fade-in">
                 <h3 class="text-lg font-medium">智能诊断结果</h3>
-                <p id="diagnosis-result" class="mt-2 text-gray-800">正在分析...</p>
+                <p id="diagnosis-result" class="mt-2 text-gray-800"></p>
                 <div id="heatmap-section" class="mt-4 hidden">
                     <h3 class="text-lg font-medium">热分析结果</h3>
                     <img id="heatmap" class="mt-2 rounded shadow-md max-w-full h-auto" />
@@ -263,7 +263,7 @@
             <h2 class="text-xl font-semibold mb-4">系统功能</h2>
             <ul class="list-disc pl-6">
                 <li>眼底影像自动分析</li>
-                <li>糖尿病预测疾病、青光眼等疾病检测</li>
+                <li>白内障、青光眼等疾病检测</li>
                 <li>详细诊断报告生成</li>
                 <li>眼底热力图生成</li>
             </ul>
@@ -271,7 +271,7 @@
     </main>
 
     <footer class="bg-green-900 text-white text-center p-4 mt-6 rounded-lg shadow-md fade-in">
-        <p>© 2025 眼科疾病智能诊断系统 | 版权所有</p>
+        <p>© 2025 OphthaAI眼科疾病智能诊断系统 | 版权所有</p>
     </footer>
 
     <!-- 左眼模态框 -->
@@ -307,93 +307,130 @@
     </div>
 
     <script>
-        function previewLeftImage(event) {
-            const file = event.target.files[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = function (e) {
-                    document.getElementById('left-preview').src = e.target.result;
-                    document.getElementById('left-image-preview').classList.remove('hidden');
-                }
-                reader.readAsDataURL(file);
+    function previewLeftImage(event) {
+        const file = event.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                document.getElementById('left-preview').src = e.target.result;
+                document.getElementById('left-image-preview').classList.remove('hidden');
+            }
+            reader.readAsDataURL(file);
+        }
+    }
+
+    function previewRightImage(event) {
+        const file = event.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                document.getElementById('right-preview').src = e.target.result;
+                document.getElementById('right-image-preview').classList.remove('hidden');
+            }
+            reader.readAsDataURL(file);
+        }
+    }
+
+    function openModal(modalId, imgId) {
+        const modal = document.getElementById(modalId);
+        const img = document.getElementById(imgId);
+        const modalImg = document.getElementById(modalId + '-img');
+        modalImg.src = img.src;
+        modalImg.style.transform = 'scale(1)';
+        modal.style.display = "block";
+    }
+
+    function closeModal(modalId) {
+        const modal = document.getElementById(modalId);
+        modal.style.display = "none";
+    }
+
+    function zoomImage(imgId, scaleFactor) {
+        const img = document.getElementById(imgId);
+        const currentScale = parseFloat(img.style.transform.match(/scale\(([^)]+)\)/)?.[1]) || 1;
+        const newScale = currentScale * scaleFactor;
+        img.style.transform = `scale(${newScale})`;
+    }
+
+    document.getElementById('upload-form').addEventListener('submit', function (event) {
+    const ageInput = document.getElementById('age');
+    const age = parseInt(ageInput.value, 10);
+    if (isNaN(age) || age < 0) {
+        alert('年龄必须是一个非负整数，请重新输入。');
+        ageInput.focus();
+        event.preventDefault();
+        return;
+    }
+
+    event.preventDefault();
+    // 获取用户填写的表单数据
+    const insuranceId = document.getElementById('insurance-id').value;
+    const gender = document.getElementById('gender').value;
+    const leftEyeImage = document.getElementById('left-eye-image').files[0];
+    const rightEyeImage = document.getElementById('right-eye-image').files[0];
+
+    // 创建FormData对象
+    let formData = new FormData();
+    formData.append("insurance-id", insuranceId);
+    formData.append("gender", gender);
+    formData.append("age", age);
+    formData.append("left-eye-image", leftEyeImage);
+    formData.append("right-eye-image", rightEyeImage);
+
+    // 发送AJAX请求到Flask
+    fetch("/upload", {
+        method: "POST",
+        body: formData
+    })
+   .then(response => response.json())
+   .then(data => {
+        console.log("上传:", data);
+        // 在页面上显示上传的诊断信息
+        document.getElementById('result-section').classList.remove('hidden');
+        const predictions = data.predictions;
+        const diseases = data.diseases;
+        // 建立字母到中文的映射
+        const diseaseMap = {
+            'N': '正常',
+            'D': '糖尿病',
+            'G': '青光眼',
+            'C': '白内障',
+            'A': 'AMD',
+            'H': '高血压',
+            'M': '近视',
+            'O': '其他疾病/异常'
+        };
+        let diagnosisText = "诊断结果: ";
+        for (let i = 0; i < predictions.length; i++) {
+            if (predictions[i] === 1) {
+                // 使用映射将字母转换为中文
+                diagnosisText += diseaseMap[diseases[i]] + " ";
             }
         }
+        document.getElementById('diagnosis-result').textContent = diagnosisText;
 
-        function previewRightImage(event) {
-            const file = event.target.files[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = function (e) {
-                    document.getElementById('right-preview').src = e.target.result;
-                    document.getElementById('right-image-preview').classList.remove('hidden');
-                }
-                reader.readAsDataURL(file);
-            }
+        // 显示热力图
+        const heatmapSection = document.getElementById('heatmap-section');
+        const heatmapContainer = document.createElement('div');
+        heatmapContainer.className = 'mt-2';
+
+        if (data.heatmaps && data.heatmaps.length > 0) {
+            heatmapSection.classList.remove('hidden');
+            data.heatmaps.forEach(heatmapObj => {
+                const img = document.createElement('img');
+                img.src = heatmapObj.heatmap;
+                img.alt = `Disease: ${heatmapObj.disease}`;
+                img.className = 'rounded shadow-md max-w-full h-auto my-2';
+                heatmapContainer.appendChild(img);
+            });
+            heatmapSection.appendChild(heatmapContainer);
         }
-
-        function openModal(modalId, imgId) {
-            const modal = document.getElementById(modalId);
-            const img = document.getElementById(imgId);
-            const modalImg = document.getElementById(modalId + '-img');
-            modalImg.src = img.src;
-            modalImg.style.transform = 'scale(1)';
-            modal.style.display = "block";
-        }
-
-        function closeModal(modalId) {
-            const modal = document.getElementById(modalId);
-            modal.style.display = "none";
-        }
-
-        function zoomImage(imgId, scaleFactor) {
-            const img = document.getElementById(imgId);
-            const currentScale = parseFloat(img.style.transform.match(/scale\(([^)]+)\)/)?.[1]) || 1;
-            const newScale = currentScale * scaleFactor;
-            img.style.transform = `scale(${newScale})`;
-        }
-
-        document.getElementById('upload-form').addEventListener('submit', function (event) {
-            const ageInput = document.getElementById('age');
-            const age = parseInt(ageInput.value, 10);
-            if (isNaN(age) || age < 0) {
-                alert('年龄必须是一个非负整数，请重新输入。');
-                ageInput.focus();
-                event.preventDefault();
-                return;
-            }
-
-            event.preventDefault();
-            // 获取用户填写的表单数据
-            const insuranceId = document.getElementById('insurance-id').value;
-            const gender = document.getElementById('gender').value;
-            const leftEyeImage = document.getElementById('left-eye-image').files[0];
-            const rightEyeImage = document.getElementById('right-eye-image').files[0];
-
-            // 创建 FormData 对象
-            let formData = new FormData();
-            formData.append("insurance-id", insuranceId);
-            formData.append("gender", gender);
-            formData.append("age", age);
-            formData.append("left-eye-image", leftEyeImage);
-            formData.append("right-eye-image", rightEyeImage);
-
-            // 发送 AJAX 请求到 Flask 前端
-            fetch("/upload", {
-                method: "POST",
-                body: formData
-            })
-              .then(response => response.json())
-              .then(data => {
-                    console.log("上传:", data);
-                    // 在页面上显示上传的诊断信息
-                    document.getElementById('result-section').classList.remove('hidden');
-                    document.getElementById('diagnosis-result').textContent = "诊断结果: " + data.data.disease;
-                    // 图像显示和其他返回数据
-                })
-              .catch(error => {
-                    console.error('Error:', error);
-                });
-        });
-    </script>
+    })
+   .catch(error => {
+        console.error('Error:', error);
+    });
+});
+</script>
 </body>
+
 </html>

@@ -1,10 +1,14 @@
-import socket
 import os
 import glob
 import cv2
 import numpy as np
 from PIL import Image
+import matplotlib.pyplot as plt
 from PIL import ImageFile
+import socket
+import datetime
+import time
+
 ImageFile.MAXBLOCK = 1024 * 1024
 
 
@@ -56,6 +60,23 @@ def read_and_convert_images(input_dir, output_dir, target_format='PNG', target_m
     return processed_paths
 
 
+def pad_to_square(img):
+    """将图像填充为正方形，保持原有长宽比，避免拉伸变形。"""
+    h, w = img.shape[:2]
+    size = max(h, w)  # 选择较大的边作为目标边长
+
+    # 计算上下和左右需要填充的像素
+    top_pad = (size - h) // 2
+    bottom_pad = size - h - top_pad
+    left_pad = (size - w) // 2
+    right_pad = size - w - left_pad
+
+    # 使用黑色填充（也可以设置为其他颜色
+    padded_img = cv2.copyMakeBorder(img, top_pad, bottom_pad, left_pad, right_pad,
+                                    borderType=cv2.BORDER_CONSTANT, value=(0, 0, 0))
+    return padded_img
+
+
 def apply_clahe(image):
     """
     对输入的彩色图像应用 CLAHE 均衡化，先转换到 LAB 颜色空间，只处理亮度通道。
@@ -71,9 +92,10 @@ def apply_clahe(image):
 
 def denoise_image(image):
     """
-    对图像进行噪声去除，采用高斯模糊处理。
+    对图像进行噪声去除，采用非局部均值去噪 (Non-Local Means Denoising)处理。
     """
-    return cv2.GaussianBlur(image, (5, 5), 0)
+    denoised_image = cv2.fastNlMeansDenoisingColored(image, None, 10, 10, 7, 21)
+    return denoised_image
 
 
 def enhance_image(image):
@@ -87,59 +109,20 @@ def enhance_image(image):
     return enhanced
 
 
-def process_image_pipeline(input_img_path, output_path):
-    """
-    对单张图像进行整体预处理：读取、CLAHE 亮度均衡、噪声去除、图像增强后保存。
-    如果输出文件已存在，则跳过处理。
-    """
-    try:
-        # 修正输入图像路径，假设 FrontPage 和 ImagePreprocess 在同一父目录下
-        parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        input_img_path = os.path.join(parent_dir, 'FrontPage', input_img_path)
+def process_image_in_memory(img):
+    # 1. 将图像填充为正方形，避免拉伸变形
+    img_square = pad_to_square(img)
 
-        # 如果处理后的文件已存在，直接跳过
-        if os.path.exists(output_path):
-            print(f"处理后的图像 {output_path} 已存在，跳过处理。")
-            return
+    # 2.亮度均衡（CLAHE）
+    img_eq = apply_clahe(img_square)
 
-        # 读取图像（使用 OpenCV 读取，格式为 BGR）
-        img = cv2.imread(input_img_path)
-        print(f"尝试读取图像 {input_img_path}，返回值: {img}")
-        if img is None:
-            print(f"无法读取图像 {input_img_path}")
-            return
+    # 3.噪声去除
+    img_denoised = denoise_image(img_eq)
 
-        # 亮度均衡（CLAHE）
-        img_eq = apply_clahe(img)
-        # 噪声去除
-        img_denoised = denoise_image(img_eq)
-        # 图像增强（锐化）
-        img_enhanced = enhance_image(img_denoised)
+    # 4.图像增强（锐化）
+    img_enhanced = enhance_image(img_denoised)
 
-        # 保存处理结果（保存为 PNG 格式）
-        cv2.imwrite(output_path, img_enhanced)
-        processed_img = cv2.imread(output_path)
-        if processed_img is not None:
-            print(f"处理后尺寸: {processed_img.shape}")
-        print(f"保存处理后的图像：{output_path}")
-    except Exception as e:
-        print(f"处理图像 {input_img_path} 时出错: {e}")
-
-
-def batch_process_images(input_dir, output_dir):
-    """
-    对 input_dir 中所有图像批量执行预处理，并保存到 output_dir。
-    """
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-
-    # 假设图片已经预先转换格式（也可以直接在此处处理）
-    image_paths = glob.glob(os.path.join(input_dir, '*.png'))
-    for img_path in image_paths:
-        base_name = os.path.basename(img_path)
-        name, _ = os.path.splitext(base_name)
-        out_path = os.path.join(output_dir, name + '.png')
-        process_image_pipeline(img_path, out_path)
+    return img_enhanced
 
 
 def pad_to_same_height(img1, img2):
@@ -185,89 +168,106 @@ def pair_images_and_concat(image_list, output_dir, concat_axis=1):
         if len(pair) == 2:
             img1 = cv2.imread(pair[0])
             img2 = cv2.imread(pair[1])
+            if img1 is None or img2 is None:
+                print(f"无法读取图像 {pair[0]} 或 {pair[1]}，跳过拼接")
+                continue
             print(f"拼接前尺寸: {pair[0]} -> {img1.shape}, {pair[1]} -> {img2.shape}")
 
+            # 处理图像
+            img1_processed = process_image_in_memory(img1)
+            img2_processed = process_image_in_memory(img2)
+
             # 用填充方式统一高度
-            img1_padded, img2_padded = pad_to_same_height(img1, img2)
+            img1_padded, img2_padded = pad_to_same_height(img1_processed, img2_processed)
             print(f"填充后尺寸: {pair[0]} -> {img1_padded.shape}, {pair[1]} -> {img2_padded.shape}")
 
             concatenated = np.concatenate((img1_padded, img2_padded), axis=concat_axis)
 
-            # 根据左图的文件名提取数字部分作为输出名称
-            base_name = os.path.basename(pair[0])
-            name, ext = os.path.splitext(base_name)
-            tokens = name.split('_')
-            if tokens:
-                common_num = tokens[0]
-            else:
-                common_num = name
-
-            out_path = os.path.join(output_dir, f"{common_num}.png")
+            # 以拼接时间命名
+            now = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+            out_path = os.path.join(output_dir, f"{now}.png")
             cv2.imwrite(out_path, concatenated)
             print(f"保存拼接图像：{out_path}")
         else:
             print(f"最后一组图像不足两张，跳过。")
 
 
-# 创建 socket 对象
-server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-# 绑定地址和端口（这里假设端口为 8888，你可以根据需要修改）
-server_address = ('localhost', 8888)
-server_socket.bind(server_address)
-
-# 开始监听
-server_socket.listen(1)
-print('等待连接...')
-
-try:
-    while True:
-        # 接受连接
-        client_socket, client_address = server_socket.accept()
-        print(f'连接来自: {client_address}')
-
+def process_spliced_paths(spliced_paths, output_dir):
+    image_paths = spliced_paths.split('|')
+    final_output_dir = os.path.join(output_dir, 'paired')
+    if not os.path.exists(final_output_dir):
         try:
-            client_socket.settimeout(10)  # 设置一个超时时间，例如 10 秒
-            # 接收客户端发送的多个图像路径
-            paths = client_socket.recv(1024).decode('utf-8')
-            image_paths = paths.split('|')
+            os.makedirs(final_output_dir)
+        except PermissionError:
+            print(f"没有权限创建目录 {final_output_dir}")
+            return None
+    if len(image_paths) >= 2:
+        pair_images_and_concat(image_paths, final_output_dir, concat_axis=1)
+    else:
+        print("处理后的图像数量不足，无法进行拼接")
 
-            # 假设输入图像已经是处理过格式的（如果需要转换格式，可先调用 read_and_convert_images 函数）
-            input_dir = os.path.dirname(image_paths[0])
-            output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'processed')  # 处理后的图像保存目录
-            if not os.path.exists(output_dir):
-                os.makedirs(output_dir)
+    # 选择处理好的文件夹中的最后一张图片返回给前端
+    if os.listdir(final_output_dir):
+        all_images = os.listdir(final_output_dir)
+        all_images.sort()
+        final_processed_image_path = os.path.join(final_output_dir, all_images[-1])
+        return final_processed_image_path
+    else:
+        print("没有拼接后的图像，无法返回路径")
+        return None
 
-            processed_image_list = []
-            for img_path in image_paths:
-                base_name = os.path.basename(img_path)
-                name, _ = os.path.splitext(base_name)
-                output_path = os.path.join(output_dir, name + '.png')
-                process_image_pipeline(img_path, output_path)
-                processed_image_list.append(output_path)
 
-            # 将处理后的图像进行拼接
-            final_output_dir = os.path.join(output_dir, 'paired')
-            if not os.path.exists(final_output_dir):
-                os.makedirs(final_output_dir)
-            pair_images_and_concat(processed_image_list, final_output_dir, concat_axis=1)
+if __name__ == '__main__':
+    # 创建 socket 对象
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-            # 假设拼接后的图像路径为拼接目录下的第一张图像路径（你可以根据实际情况调整）
-            final_processed_image_path = os.path.join(final_output_dir, os.listdir(final_output_dir)[0])
+    # 绑定地址和端口（这里假设端口为 8888，你可以根据需要修改）
+    server_address = ('localhost', 8888)
+    server_socket.bind(server_address)
 
-            # 将处理后的图像路径发送回客户端
-            client_socket.send(final_processed_image_path.encode('utf-8'))
-        except socket.timeout:
-            print(f"客户端 {client_address} 连接超时，已关闭连接。")
-        except (socket.error, BrokenPipeError, ConnectionResetError) as e:
-            print(f"与客户端 {client_address} 的连接出现错误: {e}，已关闭连接。")
-        except Exception as e:
-            print(f'处理错误: {e}')
-        finally:
+    # 开始监听
+    server_socket.listen(1)
+    print('等待连接...')
+
+    print(f"当前工作目录: {os.getcwd()}")
+
+    try:
+        while True:
+            # 接受连接
+            client_socket, client_address = server_socket.accept()
+            print(f'连接来自: {client_address}')
+
             try:
-                client_socket.close()
-            except Exception:
-                pass  # 确保在异常情况下也能尝试关闭连接，忽略可能的关闭错误
-except KeyboardInterrupt:
-    print("接收到用户中断信号，正在关闭服务器...")
-    server_socket.close()
+                client_socket.settimeout(10)  # 设置一个超时时间，例如 10 秒
+                # 接收客户端发送的拼接图像路径
+                data = client_socket.recv(1024).decode('utf-8')
+                # 提取拼接路径
+                start_index = data.find('paths=')
+                if start_index != -1:
+                    spliced_paths = data[start_index + len('paths='):].split('\r\n')[0]
+                else:
+                    print("未找到有效的拼接路径")
+                    continue
+
+                output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'processed')
+                if not os.path.exists(output_dir):
+                    os.makedirs(output_dir)
+
+                final_processed_image_path = process_spliced_paths(spliced_paths, output_dir)
+                if final_processed_image_path:
+                    # 将处理后的图像路径发送回客户端
+                    client_socket.send(final_processed_image_path.encode('utf-8'))
+            except socket.timeout:
+                print(f"客户端 {client_address} 连接超时，已关闭连接。")
+            except (socket.error, BrokenPipeError, ConnectionResetError) as e:
+                print(f"与客户端 {client_address} 的连接出现错误: {e}，已关闭连接。")
+            except Exception as e:
+                print(f'处理错误: {e}')
+            finally:
+                try:
+                    client_socket.close()
+                except Exception:
+                    pass  # 确保在异常情况下也能尝试关闭连接，忽略可能的关闭错误
+    except KeyboardInterrupt:
+        print("接收到用户中断信号，正在关闭服务器...")
+        server_socket.close()

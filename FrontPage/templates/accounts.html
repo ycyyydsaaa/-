@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>眼科疾病智能诊断系统 - 登录注册</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css">
+    <style>
+        /* 绿色主题 */
+        :root {
+            --primary-green: #047857;
+            --dark-green: #065f46;
+            --light-green-bg: #fefefe;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: var(--light-green-bg);
+        }
+
+        /* 头部导航栏 */
+       .navbar {
+            background-color: var(--dark-green);
+            color: white;
+            padding: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+        }
+
+        /* 页面主容器 */
+       .container {
+            max-width: 400px;
+            margin: 50px auto;
+            padding: 20px;
+            text-align: center;
+        }
+
+        /* 登录注册卡片 */
+       .card {
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s ease;
+            text-align: left;
+            background: rgba(236, 236, 236, 0.901);
+        }
+
+       .card:hover {
+            transform: scale(1.05);
+        }
+
+        /* 切换标签 */
+       .tab-container {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 20px;
+        }
+
+       .tab {
+            cursor: pointer;
+            font-size: 18px;
+            font-weight: bold;
+            color: var(--primary-green);
+            padding-bottom: 5px;
+            border-bottom: 2px solid transparent;
+        }
+
+       .tab.active {
+            border-bottom: 2px solid var(--primary-green);
+        }
+
+        /* 输入框 */
+       .input-field {
+            width: 100%;
+            padding: 12px;
+            margin: 10px 0;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+        }
+
+        /* 绿色按钮 */
+       .btn {
+            background-color: var(--primary-green);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            display: inline-block;
+            transition: all 0.3s ease;
+            width: 100%;
+            margin-top: 20px;
+        }
+
+       .btn:hover {
+            background-color: #034c39;
+        }
+
+        /* 底部 */
+       .footer {
+            margin-top: 50px;
+            padding: 20px;
+            background: var(--dark-green);
+            color: white;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        /* 隐藏内容 */
+       .hidden {
+            display: none;
+        }
+
+        /* 错误提示信息 */
+       .error-message {
+            color: red;
+            margin-top: 5px;
+        }
+
+        /* 成功提示信息 */
+       .success-message {
+            color: green;
+            margin-top: 5px;
+        }
+
+        /* 验证码图片 */
+       .captcha-img {
+            width: 80px; /* 缩小图片宽度 */
+            height: auto;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+        }
+
+        /* 刷新验证码按钮 */
+       .refresh-captcha {
+            display: inline-block;
+            margin-left: 10px;
+            cursor: pointer;
+            color: var(--primary-green);
+        }
+
+        /* 验证码输入框和图片容器 */
+       .captcha-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* 调整验证码输入框宽度 */
+       .captcha-input {
+            width: calc(100% - 90px); /* 根据图片宽度调整输入框宽度 */
+            margin-right: 10px;
+        }
+
+        /* 验证码输入框和发送按钮容器 */
+       .phone-captcha-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* 调整验证码输入框宽度 */
+       .phone-captcha-input {
+            width: calc(100% - 120px); /* 根据按钮宽度调整输入框宽度 */
+        }
+
+        /* 发送验证码按钮 */
+       .send-captcha-btn {
+            background-color: #9e9d9d;
+            color: white;
+            padding: 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+       .send-captcha-btn:hover {
+            background-color: #4b4b4b;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- 头部导航栏 -->
+    <header class="navbar">
+        <h1 class="text-xl font-bold">眼科疾病智能诊断系统</h1>
+        <nav>
+            <ul class="flex space-x-4">
+                <li><a href="/" class="hover:underline">返回首页</a></li>
+
+            </ul>
+        </nav>
+    </header>
+
+    <!-- 主体内容 -->
+    <main class="container">
+        <div class="card">
+            <div class="tab-container">
+                <div class="tab active" onclick="showTab('login')">登录</div>
+                <div class="tab" onclick="showTab('register')">注册</div>
+            </div>
+            <div id="login" class="tab-content">
+                <form id="login-form">
+                    <input type="tel" class="input-field" id="login-phone" placeholder="手机号码">
+                    <input type="password" class="input-field" id="login-password" placeholder="密码">
+                    <div class="captcha-container">
+                        <input type="text" class="input-field captcha-input" id="login-captcha-input" placeholder="输入验证码">
+                        <img src="{{ url_for('static', filename='vCode1.png') }}" alt="验证码" class="captcha-img" id="login-captcha-img">
+                        <span class="refresh-captcha" onclick="refreshCaptcha('login')">刷新</span>
+                    </div>
+                    <div class="error-message" id="login-error"></div>
+                    <button type="submit" class="btn">登录</button>
+                </form>
+            </div>
+            <div id="register" class="tab-content hidden">
+                <form id="register-form">
+                    <input type="tel" class="input-field" id="register-phone" placeholder="手机号码">
+                    <input type="password" class="input-field" id="register-password" placeholder="密码">
+                    <input type="password" class="input-field" id="confirm-password" placeholder="确认密码">
+                    <div class="phone-captcha-container">
+                        <input type="text" class="input-field phone-captcha-input" id="register-captcha-input" placeholder="输入验证码">
+                        <button type="button" class="send-captcha-btn" onclick="sendCaptcha()">发送验证码</button>
+                    </div>
+                    <div class="error-message" id="register-error"></div>
+                    <div class="success-message" id="register-success"></div>
+                    <button type="submit" class="btn">注册</button>
+                </form>
+            </div>
+        </div>
+    </main>
+
+    <!-- 底部 -->
+    <footer class="footer">
+        <p>© 2025 眼科疾病智能诊断系统 | 版权所有</p>
+    </footer>
+    <script>
+        function showTab(tabId) {
+            const tabs = document.querySelectorAll('.tab');
+            const tabContents = document.querySelectorAll('.tab-content');
+
+            tabs.forEach(tab => {
+                tab.classList.remove('active');
+            });
+
+            tabContents.forEach(content => {
+                content.classList.add('hidden');
+            });
+
+            document.querySelector(`[onclick="showTab('${tabId}')"]`).classList.add('active');
+            document.getElementById(tabId).classList.remove('hidden');
+        }
+
+        const loginForm = document.getElementById('login-form');
+        const loginPhone = document.getElementById('login-phone');
+        const loginPassword = document.getElementById('login-password');
+        const loginCaptchaImg = document.getElementById('login-captcha-img');
+        const loginCaptchaInput = document.getElementById('login-captcha-input');
+        const loginError = document.getElementById('login-error');
+
+        const registerForm = document.getElementById('register-form');
+        const registerPhone = document.getElementById('register-phone');
+        const registerPassword = document.getElementById('register-password');
+        const confirmPassword = document.getElementById('confirm-password');
+        const registerCaptchaInput = document.getElementById('register-captcha-input');
+        const registerError = document.getElementById('register-error');
+        const registerSuccess = document.getElementById('register-success');
+
+        function generateCaptchaUrl() {
+            const timestamp = new Date().getTime();
+            return `/captcha?timestamp=${timestamp}`;
+        }
+
+        function refreshCaptcha(formType) {
+            if (formType === 'login') {
+                // 注释掉下面这行，避免刷新时重新生成验证码 URL
+                // loginCaptchaImg.src = generateCaptchaUrl();
+            }
+        }
+
+        // 注释掉下面这两行，避免页面加载时重新生成验证码 URL
+        // window.onload = function () {
+        //     loginCaptchaImg.src = generateCaptchaUrl();
+        // };
+
+        loginForm.addEventListener('submit', async function (e) {
+            const phone = loginPhone.value;
+            const password = loginPassword.value;
+            const captcha = loginCaptchaInput.value;
+            let errorMsg = '';
+
+            if (phone.length!== 11) {
+                errorMsg += '手机号必须为 11 位；';
+            }
+            if (password.length < 6 ||!/[a-zA-Z]/.test(password) ||!/\d/.test(password)) {
+                errorMsg += '密码必须不小于 6 位且为字母和数字结合；';
+            }
+
+            try {
+                const response = await fetch('/verify_captcha', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ captcha })
+                });
+                const data = await response.json();
+                if (!data.valid) {
+                    errorMsg += '验证码输入错误；';
+                }
+            } catch (error) {
+                errorMsg += '验证码验证出错，请稍后重试；';
+            }
+
+            if (errorMsg) {
+                e.preventDefault();
+                loginError.textContent = errorMsg;
+            } else {
+                loginError.textContent = '';
+            }
+        });
+
+        registerForm.addEventListener('submit', async function (e) {
+            const phone = registerPhone.value;
+            const password = registerPassword.value;
+            const confirm = confirmPassword.value;
+            const captcha = registerCaptchaInput.value;
+            let errorMsg = '';
+
+            if (phone.length!== 11) {
+                errorMsg += '手机号必须为 11 位；';
+            }
+            if (password.length < 6 ||!/[a-zA-Z]/.test(password) ||!/\d/.test(password)) {
+                errorMsg += '密码必须不小于 6 位且为字母和数字结合；';
+            }
+            if (password!== confirm) {
+                errorMsg += '两次输入的密码不一致；';
+            }
+
+            try {
+                const response = await fetch('/verify_phone_captcha', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ phone, captcha })
+                });
+                const data = await response.json();
+                if (!data.valid) {
+                    errorMsg += '验证码输入错误；';
+                }
+            } catch (error) {
+                errorMsg += '验证码验证出错，请稍后重试；';
+            }
+
+            if (errorMsg) {
+                e.preventDefault();
+                registerError.textContent = errorMsg;
+                registerSuccess.textContent = '';
+            } else {
+                e.preventDefault();
+                registerError.textContent = '';
+                registerSuccess.textContent = '注册成功';
+                setTimeout(() => {
+                    showTab('login');
+                    loginPhone.value = phone;
+                    loginPassword.value = password;
+                }, 300);
+            }
+        });
+
+        async function sendCaptcha() {
+            const phone = registerPhone.value;
+            if (phone.length!== 11) {
+                registerError.textContent = '手机号必须为 11 位';
+                return;
+            }
+            try {
+                const response = await fetch('/send_phone_captcha', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ phone })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    registerError.textContent = '';
+                    alert('验证码已发送，请查收');
+                } else {
+                    registerError.textContent = '验证码发送失败，请稍后重试';
+                }
+            } catch (error) {
+                registerError.textContent = '验证码发送出错，请稍后重试';
+            }
+        }
+    </script>
+</body>
+
+</html>
