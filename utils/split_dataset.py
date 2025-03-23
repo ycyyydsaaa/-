@@ -5,23 +5,14 @@ from sklearn.model_selection import train_test_split
 def split_dataset(excel_path, test_size=0.2, random_state=42, disease_cols=None):
     """
     根据病例ID分割数据，防止同一病例同时出现在训练与测试集中
-
-    Args:
-        excel_path (str): Excel 文件路径，需包含 'paired_image' 或 'id' 列
-        test_size (float): 测试集比例
-        random_state (int): 随机种子
-        disease_cols (list): 疾病标签列（用于分层抽样）
-    Returns:
-        tuple: (train_path, test_path) 训练集和测试集的 Excel 文件路径
     """
     df = pd.read_excel(excel_path)
     if 'paired_image' not in df.columns and 'id' not in df.columns:
-        raise ValueError("Excel 文件中必须包含 'paired_image' 或 'id' 列，用于构造图像文件名。")
+        raise ValueError("Excel 文件中必须包含 'paired_image' 或 'id' 列，用于构造图像文件名.")
 
     # 提取 case_id，适配新命名规则
     if 'paired_image' in df.columns:
         df = df.dropna(subset=['paired_image'])
-        # 假设 paired_image 可能为 'paired_0.png' 或 '0.png'，提取数字部分
         df['case_id'] = df['paired_image'].astype(str).str.extract(r'(\d+)')[0]
     else:
         df = df.dropna(subset=['id'])

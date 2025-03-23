@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>眼底图像疾病预测</title>
+</head>
+<body>
+    <h1>眼底图像疾病预测</h1>
+    <form id="predictForm">
+        <label for="image">上传眼底图像:</label>
+        <input type="file" id="image" name="image" accept="image/*" required><br><br>
+
+        <label for="age">年龄:</label>
+        <input type="number" id="age" name="age" step="0.1" required><br><br>
+
+        <label for="gender">性别 (0: 女, 1: 男):</label>
+        <input type="number" id="gender" name="gender" min="0" max="1" required><br><br>
+
+        <label for="keywords">关键词（可选，例如 "glaucoma suspect, high myopia"）:</label>
+        <input type="text" id="keywords" name="keywords" placeholder="glaucoma suspect, high myopia"><br><br>
+
+        <button type="submit">预测</button>
+    </form>
+
+    <h2>预测结果</h2>
+    <div id="result"></div>
+
+    <h2>热力图</h2>
+    <div id="heatmaps"></div>
+
+    <script>
+        document.getElementById('predictForm').addEventListener('submit', async (event) => {
+            event.preventDefault();
+
+            const formData = new FormData();
+            formData.append('image', document.getElementById('image').files[0]);
+            formData.append('age', document.getElementById('age').value);
+            formData.append('gender', document.getElementById('gender').value);
+            formData.append('keywords', document.getElementById('keywords').value);
+
+            try {
+                const response = await fetch('http://localhost:5000/predict', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    // 显示预测结果
+                    const predictions = result.predictions;
+                    const diseases = result.diseases;
+                    let resultHtml = '<ul>';
+                    for (let i = 0; i < diseases.length; i++) {
+                        resultHtml += `<li>${diseases[i]}: ${predictions[i] === 1 ? '存在' : '不存在'}</li>`;
+                    }
+                    resultHtml += '</ul>';
+                    document.getElementById('result').innerHTML = resultHtml;
+
+                    // 显示热力图
+                    const heatmaps = result.heatmaps;
+                    let heatmapsHtml = '';
+                    for (const heatmap of heatmaps) {
+                        heatmapsHtml += `<h3>${heatmap.disease}</h3>`;
+                        heatmapsHtml += `<img src="${heatmap.heatmap}" alt="${heatmap.disease} 热力图" style="max-width: 100%;">`;
+                    }
+                    document.getElementById('heatmaps').innerHTML = heatmapsHtml;
+                } else {
+                    document.getElementById('result').innerHTML = `<p style="color: red;">错误: ${result.error}</p>`;
+                }
+            } catch (error) {
+                document.getElementById('result').innerHTML = `<p style="color: red;">请求失败: ${error.message}</p>`;
+            }
+        });
+    </script>
+</body>
+</html>
