@@ -21,29 +21,19 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # 配置参数
-EXCEL_PATH = r"D:\Toolbox App\PyCharm Professional\jbr\bin\D\寒风冷雨不知眠\PycharmProjects\eye_image_processing\data\Training_Dataset\labels.xlsx"
-TEST_EXCEL_PATH = r"D:\Toolbox App\PyCharm Professional\jbr\bin\D\寒风冷雨不知眠\PycharmProjects\eye_image_processing\data\Training_Dataset\labels_test.xlsx"
-IMG_ROOT = r"D:\Toolbox App\PyCharm Professional\jbr\bin\D\寒风冷雨不知眠\PycharmProjects\eye_image_processing\data\Training_Dataset\paired_dir"
-MODEL_PATH = r"D:\Toolbox App\PyCharm Professional\jbr\bin\D\寒风冷雨不知眠\PycharmProjects\eye_image_processing\models\multimodal_model.pth"
+EXCEL_PATH = r"/data/eye/pycharm_project_257/data/Training_Dataset/labels.xlsx"
+TEST_EXCEL_PATH = r"/data/eye/pycharm_project_257/data/Training_Dataset/labels_test.xlsx"
+IMG_ROOT = r"/data/eye/pycharm_project_257/data/Training_Dataset/paired_dir"
+MODEL_PATH = r"/data/eye/pycharm_project_257/models/multimodal_model.pth"
+KG_DATA_DIR = r"/data/eye/pycharm_project_257/kg_data"
 disease_cols = ['N', 'D', 'G', 'C', 'A', 'H', 'M', 'O']
-BATCH_SIZE = 1
+BATCH_SIZE = 8
 
 def custom_collate(batch):
     batch = [item for item in batch if item is not None]
     if len(batch) == 0:
         return None
     return torch.utils.data.dataloader.default_collate(batch)
-
-def validate_neo4j_graph(kg, disease_cols):
-    all_diseases = {record['d.name'] for record in kg.graph.run("MATCH (d:Disease) RETURN d.name").data()}
-    expected_diseases = set(disease_cols)
-    if all_diseases != expected_diseases:
-        raise ValueError(f"Neo4j 中的疾病节点 {all_diseases} 与预期 {expected_diseases} 不一致")
-    for d in disease_cols:
-        symptoms = kg.query_disease_symptoms(d)
-        if not symptoms:
-            logger.warning(f"疾病 {d} 在 Neo4j 中没有关联症状，可能图数据不完整")
-    logger.info("Neo4j 图数据验证通过")
 
 class WrappedModel(torch.nn.Module):
     def __init__(self, model):
@@ -56,7 +46,7 @@ class WrappedModel(torch.nn.Module):
         meta = torch.zeros(batch_size, 2, device=device, dtype=torch.float32)
         return self.model(paired_img, None, meta, use_text=False)[0]
 
-def evaluate_without_text(model, dataloader, device, disease_cols):
+def evaluate(model, dataloader, device, disease_cols):
     model.eval()
     correct = 0
     total = 0
@@ -67,8 +57,7 @@ def evaluate_without_text(model, dataloader, device, disease_cols):
 
     eval_bar = tqdm(total=len(dataloader), desc="Evaluation (No Text)", position=0, leave=True)
     wrapped_model = WrappedModel(model)
-    target_layer = model.feature_extractor.efficientnet._conv_head
-    grad_cam = GradCAM(model=wrapped_model, target_layers=[target_layer])
+    grad_cam = GradCAM(model=wrapped_model, target_layers=[model.feature_extractor.efficientnet._conv_head])
 
     with torch.no_grad():
         for batch_idx, batch in enumerate(dataloader):
@@ -80,9 +69,22 @@ def evaluate_without_text(model, dataloader, device, disease_cols):
             meta = batch['meta'].to(device, dtype=torch.float32)
             labels = batch['labels'].to(device, dtype=torch.float32)
 
+            # 检查输入是否包含 NaN
+            if torch.isnan(paired_img).any() or torch.isinf(paired_img).any():
+                logger.warning(f"Batch {batch_idx}: paired_img contains NaN or Inf")
+            if torch.isnan(meta).any() or torch.isinf(meta).any():
+                logger.warning(f"Batch {batch_idx}: meta contains NaN or Inf")
+
             with autocast():
                 logits, _, _, _, _ = model(paired_img, None, meta, use_text=False)
+                # 检查 logits 是否包含 NaN 或 Inf
+                if torch.isnan(logits).any() or torch.isinf(logits).any():
+                    logger.warning(f"Batch {batch_idx}: logits contains NaN or Inf, min={logits.min().item()}, max={logits.max().item()}")
+                    logits = torch.nan_to_num(logits, nan=0.0, posinf=10.0, neginf=-10.0)
                 probs = torch.sigmoid(logits)
+                if torch.isnan(probs).any():
+                    logger.warning(f"Batch {batch_idx}: probs contains NaN after sigmoid, min={probs.min().item()}, max={probs.max().item()}")
+                    probs = torch.nan_to_num(probs, nan=0.5)
                 preds = probs > 0.5
 
             # 强制执行 'N' 的排他性
@@ -96,18 +98,13 @@ def evaluate_without_text(model, dataloader, device, disease_cols):
                     grad_input = paired_img[0:1].clone().detach().requires_grad_(True)
                     with torch.enable_grad():
                         with autocast():
-                            grad_logits, _, _, _, _ = model(grad_input, None, meta[0:1], use_text=False)
-                        img = paired_img[0].cpu().permute(1, 2, 0).numpy()
-                        mean = np.array([0.485, 0.456, 0.406])
-                        std = np.array([0.229, 0.224, 0.225])
-                        img = (img * std + mean).clip(0, 1)
-
-                        height, width = img.shape[:2]
-                        img_left = img[:, :width // 2, :]
-                        img_right = img[:, width // 2:, :]
-
+                            grad_logits = wrapped_model(grad_input)
                         positive_indices = torch.where(labels[0] == 1)[0]
                         if len(positive_indices) > 0:
+                            img = paired_img[0].cpu().permute(1, 2, 0).numpy()
+                            mean = np.array([0.485, 0.456, 0.406])
+                            std = np.array([0.229, 0.224, 0.225])
+                            img = (img * std + mean).clip(0, 1)
                             for idx in positive_indices:
                                 target_category = idx.item()
                                 if target_category >= len(disease_cols):
@@ -116,19 +113,18 @@ def evaluate_without_text(model, dataloader, device, disease_cols):
                                 disease_name = disease_cols[target_category]
                                 targets = [ClassifierOutputTarget(target_category)]
                                 grayscale_cam = grad_cam(input_tensor=grad_input, targets=targets)
-                                grayscale_cam_clipped = np.clip(grayscale_cam[0], 0, np.percentile(grayscale_cam[0], 95))
-                                grayscale_cam_normalized = (grayscale_cam_clipped - grayscale_cam_clipped.min()) / (grayscale_cam_clipped.max() - grayscale_cam_clipped.min() + 1e-8)
-
-                                cam_left = grayscale_cam_normalized[:, :width // 2]
-                                cam_right = grayscale_cam_normalized[:, width // 2:]
-
-                                vis_left = show_cam_on_image(img_left, cam_left, use_rgb=True, image_weight=0.4)
-                                vis_right = show_cam_on_image(img_right, cam_right, use_rgb=True, image_weight=0.4)
-                                vis_combined = np.hstack((vis_left, vis_right))
-                                cv2.imwrite(f"gradcam_no_text_batch_{batch_idx}_disease_{disease_name}_split.png", vis_combined * 255)
-                                logger.info(f"成功生成热力图: gradcam_no_text_batch_{batch_idx}_disease_{disease_name}_split.png")
+                                visualization = show_cam_on_image(img, grayscale_cam[0], use_rgb=True)
+                                cv2.imwrite(f"gradcam_no_text_{disease_name}.png", visualization * 255)
+                                logger.info(f"成功生成热力图: gradcam_no_text_{disease_name}.png")
+                    del grad_input, grad_logits, grayscale_cam, visualization
+                    torch.cuda.empty_cache()
                 except Exception as e:
                     logger.error(f"Batch 0 GradCAM 生成失败: {str(e)[:500]}，继续评估")
+
+            # 使用布尔张量计算真阳性
+            preds_bool = preds.bool()
+            labels_bool = labels.bool()
+            tp = (preds_bool & labels_bool).float().sum(dim=0)
 
             correct += (preds == labels).all(dim=1).sum().item()
             total += labels.size(0)
@@ -139,7 +135,7 @@ def evaluate_without_text(model, dataloader, device, disease_cols):
             eval_bar.update(1)
 
     eval_bar.close()
-    del grad_cam
+    del grad_cam, wrapped_model
     torch.cuda.empty_cache()
 
     if total == 0:
@@ -152,35 +148,53 @@ def evaluate_without_text(model, dataloader, device, disease_cols):
     all_labels = torch.cat(all_labels).numpy()
     all_probs = torch.cat(all_probs).numpy()
 
+    # 检查 all_probs 是否包含 NaN
+    if np.isnan(all_probs).any():
+        logger.warning("all_probs contains NaN, replacing with 0.5")
+        all_probs = np.nan_to_num(all_probs, nan=0.5)
+
+    # 计算动态阈值
     optimal_thresholds = np.zeros(len(disease_cols))
     for i in range(len(disease_cols)):
-        fpr, tpr, thresholds = roc_curve(all_labels[:, i], all_probs[:, i])
-        precision, recall, f1 = [], [], []
-        for thresh in thresholds:
-            preds_temp = (all_probs[:, i] > thresh).astype(int)
-            p, r, f, _ = precision_recall_fscore_support(all_labels[:, i], preds_temp, average='binary', zero_division=0)
-            precision.append(p)
-            recall.append(r)
-            f1.append(f)
-        optimal_idx = np.argmax(f1)
-        optimal_thresholds[i] = thresholds[optimal_idx]
-        logger.info(f"疾病 {disease_cols[i]} 的最优阈值: {optimal_thresholds[i]:.4f}")
+        try:
+            fpr, tpr, thresholds = roc_curve(all_labels[:, i], all_probs[:, i])
+            precision, recall, f1 = [], [], []
+            for thresh in thresholds:
+                preds_temp = (all_probs[:, i] > thresh).astype(int)
+                p, r, f, _ = precision_recall_fscore_support(all_labels[:, i], preds_temp, average='binary', zero_division=0)
+                precision.append(p)
+                recall.append(r)
+                f1.append(f)
+            optimal_idx = np.argmax(f1)
+            optimal_thresholds[i] = thresholds[optimal_idx]
+            logger.info(f"疾病 {disease_cols[i]} 的最优阈值: {optimal_thresholds[i]:.4f}")
+        except ValueError as e:
+            logger.warning(f"疾病 {disease_cols[i]} 的 ROC 曲线计算失败: {str(e)[:500]}，使用默认阈值 0.5")
+            optimal_thresholds[i] = 0.5
 
-    preds_dynamic = np.zeros_like(all_probs)
+    # 使用动态阈值生成预测，确保类型为 int32
+    preds_dynamic = np.zeros_like(all_probs, dtype=np.int32)
     for i in range(len(disease_cols)):
-        preds_dynamic[:, i] = (all_probs[:, i] > optimal_thresholds[i]).astype(int)
+        preds_dynamic[:, i] = (all_probs[:, i] > optimal_thresholds[i]).astype(np.int32)
 
+    # 强制执行 'N' 的排他性
     mask_n1 = preds_dynamic[:, 0] == 1
     preds_dynamic[mask_n1, 1:] = 0
     mask_no_disease = (preds_dynamic[:, 1:].sum(axis=1) == 0) & (preds_dynamic[:, 0] == 0)
     preds_dynamic[mask_no_disease, 0] = 1
 
+    # 确保 all_labels 和 preds_dynamic 类型一致
+    all_labels = all_labels.astype(np.int32)
+    all_preds = all_preds.astype(np.int32)
+
+    # 计算指标
     precision, recall, f1, _ = precision_recall_fscore_support(all_labels, all_preds, average=None, zero_division=0)
     micro_f1 = precision_recall_fscore_support(all_labels, all_preds, average='micro', zero_division=0)[2]
     macro_f1 = precision_recall_fscore_support(all_labels, all_preds, average='macro', zero_division=0)[2]
     weighted_f1 = precision_recall_fscore_support(all_labels, all_preds, average='weighted', zero_division=0)[2]
     weighted_f1_dynamic = precision_recall_fscore_support(all_labels, preds_dynamic, average='weighted', zero_division=0)[2]
 
+    # 输出结果
     table_data = [[disease, f"{accuracy_per_disease[i].item():.4f}", f"{p:.4f}", f"{r:.4f}", f"{f:.4f}", f"{int(correct_per_disease[i].item())}/{total}"]
                   for i, (disease, p, r, f) in enumerate(zip(disease_cols, precision, recall, f1))]
     headers = ["疾病", "准确率", "精确率", "召回率", "F1 分数", "正确预测/总样本"]
@@ -193,6 +207,7 @@ def evaluate_without_text(model, dataloader, device, disease_cols):
     logger.info("\n逐疾病评估指标：")
     logger.info(tabulate(table_data, headers=headers, tablefmt="grid"))
 
+    # 绘制柱状图
     try:
         fig, ax = plt.subplots(figsize=(12, 6))
         x = range(len(disease_cols))
@@ -236,33 +251,28 @@ def main():
 
     try:
         test_dataset = FundusDataset(excel_path=TEST_EXCEL_PATH, img_root=IMG_ROOT, disease_cols=disease_cols, phase='test')
-        test_dataloader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=4, pin_memory=True, collate_fn=custom_collate)
+        test_dataloader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=2, pin_memory=True, collate_fn=custom_collate)
         logger.info(f"测试数据集大小: {len(test_dataset)}")
     except Exception as e:
         raise RuntimeError(f"测试数据集加载失败: {str(e)[:500]}")
 
     try:
-        kg = MedicalKG(uri="bolt://localhost:7687", user="neo4j", password="120190333")
-        kg.disease_cols = disease_cols
-        validate_neo4j_graph(kg, disease_cols)
-        kg_embeddings = kg.generate_disease_embeddings().to(device)
-        A = kg.get_adjacency_matrix().to(device)
-        logger.info("从 Neo4j 加载知识图谱嵌入完成")
-    except Exception as e:
-        raise RuntimeError(f"知识图谱嵌入加载失败: {str(e)[:500]}")
-
-    try:
-        model = MultiModalNet(disease_cols=disease_cols, kg_embeddings=kg_embeddings, adjacency_matrix=A).to(device)
-        if not os.path.exists(MODEL_PATH):
-            raise FileNotFoundError(f"模型文件未找到: {MODEL_PATH}")
         checkpoint = torch.load(MODEL_PATH, map_location=device)
+        kg_embeddings = checkpoint['kg_embeddings'].to(device)
+        A = torch.load(os.path.join(KG_DATA_DIR, "adjacency_matrix.pt"), map_location=device)
+        model = MultiModalNet(disease_cols=disease_cols, kg_embeddings=kg_embeddings, adjacency_matrix=A).to(device)
+        # 检查模型权重是否包含 NaN
+        for name, param in model.state_dict().items():
+            if torch.isnan(param).any() or torch.isinf(param).any():
+                logger.warning(f"模型参数 {name} 包含 NaN 或 Inf")
         model.load_state_dict(checkpoint['model_state_dict'])
-        model.kg_embeddings = checkpoint['kg_embeddings'].to(device)
-        logger.info(f"模型已从 {MODEL_PATH} 加载")
+        model.initialize_kg_logits()  # 确保 kg_logits 被正确初始化（会跳过重新计算）
+        logger.info(f"模型已从 {MODEL_PATH} 加载，kg_logits 已从 state_dict 恢复")
+        logger.info(f"加载后的 kg_logits: {model.kg_logits}")
     except Exception as e:
         raise RuntimeError(f"模型加载失败: {str(e)[:500]}")
 
-    full_match_accuracy, accuracy_per_disease, micro_f1, macro_f1, weighted_f1_dynamic = evaluate_without_text(model, test_dataloader, device, disease_cols)
+    full_match_accuracy, accuracy_per_disease, micro_f1, macro_f1, weighted_f1_dynamic = evaluate(model, test_dataloader, device, disease_cols)
 
 if __name__ == "__main__":
     try:
