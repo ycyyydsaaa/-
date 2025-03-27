@@ -54,6 +54,22 @@ def read_and_convert_images(input_dir, output_dir, target_format='PNG', target_m
     print(f"🎯 处理完成，总共 {len(processed_paths)} 张图片，其中 {skipped_count} 张已存在，跳过。")
     return processed_paths
 
+def pad_to_square(img):
+    """将图像填充为正方形，保持原有长宽比，避免拉伸变形。"""
+    h, w = img.shape[:2]
+    size = max(h, w)  # 选择较大的边作为目标边长
+
+    # 计算上下和左右需要填充的像素
+    top_pad = (size - h) // 2
+    bottom_pad = size - h - top_pad
+    left_pad = (size - w) // 2
+    right_pad = size - w - left_pad
+
+    # 使用黑色填充（也可以设置为其他颜色
+    padded_img = cv2.copyMakeBorder(img, top_pad, bottom_pad, left_pad, right_pad,
+                                    borderType=cv2.BORDER_CONSTANT, value=(0, 0, 0))
+    return padded_img
+
 def apply_clahe(image):
     """
     对输入的彩色图像应用 CLAHE 均衡化，先转换到 LAB 颜色空间，只处理亮度通道。
@@ -69,10 +85,10 @@ def apply_clahe(image):
 
 def denoise_image(image):
     """
-    对图像进行噪声去除，采用高斯模糊处理。
+    对图像进行噪声去除，采用非局部均值去噪 (Non-Local Means Denoising)处理。
     """
-    return cv2.GaussianBlur(image, (5, 5), 0)
-
+    denoised_image = cv2.fastNlMeansDenoisingColored(image, None, 10, 10, 7, 21)
+    return denoised_image  # 添加返回值
 
 def enhance_image(image):
     """
@@ -86,10 +102,7 @@ def enhance_image(image):
 
 
 def process_image_pipeline(input_img_path, output_path):
-    """
-    对单张图像进行整体预处理：读取、CLAHE 亮度均衡、噪声去除、图像增强后保存。
-    如果输出文件已存在，则跳过处理。
-    """
+    """对单张图像进行整体预处理：读取、CLAHE 亮度均衡、噪声去除、图像增强后保存。"""
     # 如果处理后的文件已存在，直接跳过
     if os.path.exists(output_path):
         print(f"处理后的图像 {output_path} 已存在，跳过处理。")
@@ -101,19 +114,19 @@ def process_image_pipeline(input_img_path, output_path):
         print(f"无法读取图像 {input_img_path}")
         return
 
-    # 亮度均衡（CLAHE）
-    img_eq = apply_clahe(img)
-    # 噪声去除
+    # 1. 将图像填充为正方形，避免拉伸变形
+    img_square = pad_to_square(img)
 
+    # 2. 亮度均衡（CLAHE）
+    img_eq = apply_clahe(img_square)
 
-
-
-
+    # 3. 噪声去除
     img_denoised = denoise_image(img_eq)
-    # 图像增强（锐化）
+
+    # 4. 图像增强（锐化）
     img_enhanced = enhance_image(img_denoised)
 
-    # 保存处理结果（保存为 PNG 格式）
+    # 5. 保存处理结果（保存为 PNG 格式）
     cv2.imwrite(output_path, img_enhanced)
     processed_img = cv2.imread(output_path)
     if processed_img is not None:
