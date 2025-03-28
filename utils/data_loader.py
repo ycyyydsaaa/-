@@ -21,7 +21,7 @@ def print_tensor_info(tensor, name):
         print(f"Tensor {name}: None")
 
 class FundusDataset(Dataset):
-    def __init__(self, excel_path, img_root, disease_cols, phase='train'):
+    def __init__(self, excel_path, img_root, disease_cols, phase='train', transform=None):
         if not os.path.exists(excel_path):
             raise FileNotFoundError(f"Excel 文件 {excel_path} 不存在")
         if not os.path.exists(img_root):
@@ -31,6 +31,7 @@ class FundusDataset(Dataset):
         self.img_root = img_root
         self.disease_cols = disease_cols
         self.phase = phase
+        self.transform = transform  # 使用传入的 transform
 
         # 验证和清理数据
         self._validate_and_clean(df)
@@ -39,14 +40,6 @@ class FundusDataset(Dataset):
         self.data = df.to_dict('records')
         del df  # 释放 DataFrame
         gc.collect()
-
-        self.transform = transforms.Compose([
-            transforms.Resize((384, 768)),
-            transforms.RandomHorizontalFlip() if phase == 'train' else transforms.Lambda(lambda x: x),
-            transforms.RandomRotation(30) if phase == 'train' else transforms.Lambda(lambda x: x),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         bert_path = "/data/eye/pycharm_project_257/models/bert-base-uncased"
@@ -109,7 +102,7 @@ class FundusDataset(Dataset):
                 inputs = {k: v.to(self.device) for k, v in inputs.items()}
                 with torch.no_grad():
                     outputs = self.text_encoder(**inputs)
-                    text_feature = outputs.last_hidden_state.mean(1).squeeze(0).cpu()  # 确保保存为 [768]
+                    text_feature = outputs.last_hidden_state.mean(1).squeeze(0).cpu()
                 torch.save(text_feature, text_feature_path)
                 logger.info(f"保存文本特征: {text_feature_path}, 形状: {text_feature.shape}")
                 del inputs, outputs, text_feature
@@ -141,24 +134,21 @@ class FundusDataset(Dataset):
                 logger.error(f"图像加载失败: {img_path} (样本 {idx})")
                 return None
 
-            # # 调试：检查输入类型
-            # logger.info(f"样本 {idx} - 变换前类型: {type(img)}")
-            img = self.transform(img)
-            # logger.info(f"样本 {idx} - 变换后类型: {type(img)}, 形状: {img.shape}")
+            img = self.transform(img) if self.transform is not None else transforms.ToTensor()(img)
 
             text_feature_path = os.path.join(self.img_root, f"{row['id']}_text.pt")
             text_feature = None
             if os.path.exists(text_feature_path):
                 text_feature = torch.load(text_feature_path, map_location='cpu')
-                # 确保 text_feature 是 [768]，由 DataLoader 堆叠为 [batch_size, 768]
-                if text_feature.dim() == 1:  # [768]
-                    pass  # 保持不变
-                elif text_feature.dim() == 2 and text_feature.shape[0] == 1:  # [1, 768]
-                    text_feature = text_feature.squeeze(0)  # 转为 [768]
+                if text_feature.dim() == 1:
+                    pass
+                elif text_feature.dim() == 2 and text_feature.shape[0] == 1:
+                    text_feature = text_feature.squeeze(0)
                 else:
                     logger.error(f"样本 {idx} - text_feature 维度异常: {text_feature.shape}")
-                    return None
-                # logger.info(f"样本 {idx} - text_feature 形状: {text_feature.shape}")
+                    text_feature = torch.zeros(768)
+            else:
+                text_feature = torch.zeros(768)  # 默认值
 
             age = float(row['Patient Age'])
             gender = float(row['Patient Sex'])
