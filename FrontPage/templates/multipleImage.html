@@ -319,7 +319,7 @@
     </footer>
 
     <script>
-        document.getElementById('file-input').addEventListener('change', function (event) {
+       document.getElementById('file-input').addEventListener('change', function (event) {
     const files = event.target.files;
     const previewGrid = document.getElementById('preview-grid');
     // 检查上传的图像数量是否为偶数
@@ -423,6 +423,14 @@ document.getElementById('submit-btn').addEventListener('click', async function (
         formData.append('images', files[i]);
     }
 
+    // 显示诊断结果框并设置提示信息
+    previewGroups.forEach((group) => {
+        const reportBox = group.querySelector('.diagnosis-report');
+        const reportText = reportBox.querySelector('p');
+        reportBox.style.display = 'block';
+        reportText.textContent = '正在生成智能诊断结果...';
+    });
+
     try {
         const response = await fetch('/batch_upload', {
             method: 'POST',
@@ -437,7 +445,8 @@ document.getElementById('submit-btn').addEventListener('click', async function (
                 const reportText = reportBox.querySelector('p');
                 const heatmapSection = reportBox.querySelector('#heatmap-section');
 
-                let diagnosisText = "诊断结果: ";
+                let diagnosisText = "<strong style='font-size: larger;'>智能诊断结果</strong><br>"; // 增大诊断结果标题字体大小
+                let diseases = [];
                 if (results[index] && Array.isArray(results[index].predictions) && results[index].diseases) {
                     results[index].predictions.forEach((pred, predIndex) => {
                         if (pred === 1) {
@@ -469,14 +478,26 @@ document.getElementById('submit-btn').addEventListener('click', async function (
                                     diseaseName = "其他疾病/异常";
                                     break;
                             }
-                            diagnosisText += diseaseName + " ";
+                            diseases.push(diseaseName);
                         }
                     });
                 }
-                if (diagnosisText === "诊断结果: ") {
-                    diagnosisText += "未检测到疾病";
+                if (diseases.length === 0) {
+                    diagnosisText += "<span style='font-size: larger;'>未检测到疾病</span>";
+                } else {
+                    diagnosisText += "<span style='font-size: larger;'>疾病类型：</span>";
+                    diseases.forEach((disease, index) => {
+                        diagnosisText += `<span style='font-size: larger;'>${disease}</span>`;
+                        if (index!== diseases.length - 1) {
+                            diagnosisText += '<br>';
+                        }
+                    });
                 }
-                reportText.textContent = diagnosisText;
+                diagnosisText +="<br>"
+                diagnosisText += "<br><strong style='font-size: larger;'>热力图</strong><br>";
+
+                reportText.innerHTML = diagnosisText;
+                reportBox.style.textAlign = 'left';
                 reportBox.style.display = 'block';
 
                 if (results[index] && results[index].heatmaps) {
@@ -501,9 +522,21 @@ document.getElementById('submit-btn').addEventListener('click', async function (
             });
         } else {
             console.error('批量上传失败:', result.message);
+            // 请求失败时更新诊断结果文本
+            previewGroups.forEach((group) => {
+                const reportBox = group.querySelector('.diagnosis-report');
+                const reportText = reportBox.querySelector('p');
+                reportText.textContent = '加载失败，请检查网络或重试。';
+            });
         }
     } catch (error) {
         console.error('网络错误:', error);
+        // 网络错误时更新诊断结果文本
+        previewGroups.forEach((group) => {
+            const reportBox = group.querySelector('.diagnosis-report');
+            const reportText = reportBox.querySelector('p');
+            reportText.textContent = '加载失败，请检查网络或重试。';
+        });
     }
 });
         </script>

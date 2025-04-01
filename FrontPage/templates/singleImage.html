@@ -248,7 +248,7 @@
                 <h3 class="text-lg font-medium">智能诊断结果</h3>
                 <p id="diagnosis-result" class="mt-2 text-gray-800"></p>
                 <div id="heatmap-section" class="mt-4 hidden">
-                    <h3 class="text-lg font-medium">热分析结果</h3>
+                    <h3 class="text-lg font-medium">热力图</h3>
                     <img id="heatmap" class="mt-2 rounded shadow-md max-w-full h-auto" />
                 </div>
                 <div id="lesion-section" class="mt-4 hidden">
@@ -308,51 +308,51 @@
 
     <script>
     function previewLeftImage(event) {
-        const file = event.target.files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onload = function (e) {
-                document.getElementById('left-preview').src = e.target.result;
-                document.getElementById('left-image-preview').classList.remove('hidden');
-            }
-            reader.readAsDataURL(file);
-        }
+    const file = event.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = function (e) {
+            document.getElementById('left-preview').src = e.target.result;
+            document.getElementById('left-image-preview').classList.remove('hidden');
+        };
+        reader.readAsDataURL(file);
     }
+}
 
-    function previewRightImage(event) {
-        const file = event.target.files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onload = function (e) {
-                document.getElementById('right-preview').src = e.target.result;
-                document.getElementById('right-image-preview').classList.remove('hidden');
-            }
-            reader.readAsDataURL(file);
-        }
+function previewRightImage(event) {
+    const file = event.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = function (e) {
+            document.getElementById('right-preview').src = e.target.result;
+            document.getElementById('right-image-preview').classList.remove('hidden');
+        };
+        reader.readAsDataURL(file);
     }
+}
 
-    function openModal(modalId, imgId) {
-        const modal = document.getElementById(modalId);
-        const img = document.getElementById(imgId);
-        const modalImg = document.getElementById(modalId + '-img');
-        modalImg.src = img.src;
-        modalImg.style.transform = 'scale(1)';
-        modal.style.display = "block";
-    }
+function openModal(modalId, imgId) {
+    const modal = document.getElementById(modalId);
+    const img = document.getElementById(imgId);
+    const modalImg = document.getElementById(modalId + '-img');
+    modalImg.src = img.src;
+    modalImg.style.transform ='scale(1)';
+    modal.style.display = "block";
+}
 
-    function closeModal(modalId) {
-        const modal = document.getElementById(modalId);
-        modal.style.display = "none";
-    }
+function closeModal(modalId) {
+    const modal = document.getElementById(modalId);
+    modal.style.display = "none";
+}
 
-    function zoomImage(imgId, scaleFactor) {
-        const img = document.getElementById(imgId);
-        const currentScale = parseFloat(img.style.transform.match(/scale\(([^)]+)\)/)?.[1]) || 1;
-        const newScale = currentScale * scaleFactor;
-        img.style.transform = `scale(${newScale})`;
-    }
+function zoomImage(imgId, scaleFactor) {
+    const img = document.getElementById(imgId);
+    const currentScale = parseFloat(img.style.transform.match(/scale\(([^)]+)\)/)?.[1]) || 1;
+    const newScale = currentScale * scaleFactor;
+    img.style.transform = `scale(${newScale})`;
+}
 
-    document.getElementById('upload-form').addEventListener('submit', function (event) {
+document.getElementById('upload-form').addEventListener('submit', function (event) {
     const ageInput = document.getElementById('age');
     const age = parseInt(ageInput.value, 10);
     if (isNaN(age) || age < 0) {
@@ -377,6 +377,12 @@
     formData.append("left-eye-image", leftEyeImage);
     formData.append("right-eye-image", rightEyeImage);
 
+    // 显示诊断结果框并显示加载提示
+    const resultSection = document.getElementById('result-section');
+    resultSection.classList.remove('hidden');
+    const diagnosisResult = document.getElementById('diagnosis-result');
+    diagnosisResult.textContent = '正在加载中...';
+
     // 发送AJAX请求到Flask
     fetch("/upload", {
         method: "POST",
@@ -385,11 +391,9 @@
    .then(response => response.json())
    .then(data => {
         console.log("上传:", data);
-        // 在页面上显示上传的诊断信息
-        document.getElementById('result-section').classList.remove('hidden');
+        // 更新为实际的诊断结果
         const predictions = data.predictions;
         const diseases = data.diseases;
-        // 建立字母到中文的映射
         const diseaseMap = {
             'N': '正常',
             'D': '糖尿病',
@@ -403,16 +407,15 @@
         let diagnosisText = "诊断结果: ";
         for (let i = 0; i < predictions.length; i++) {
             if (predictions[i] === 1) {
-                // 使用映射将字母转换为中文
                 diagnosisText += diseaseMap[diseases[i]] + " ";
             }
         }
-        document.getElementById('diagnosis-result').textContent = diagnosisText;
+        diagnosisResult.textContent = diagnosisText;
 
         // 显示热力图
         const heatmapSection = document.getElementById('heatmap-section');
         const heatmapContainer = document.createElement('div');
-        heatmapContainer.className = 'mt-2';
+        heatmapContainer.className ='mt-2';
 
         if (data.heatmaps && data.heatmaps.length > 0) {
             heatmapSection.classList.remove('hidden');
@@ -428,6 +431,8 @@
     })
    .catch(error => {
         console.error('Error:', error);
+        // 加载出错时更新提示信息
+        diagnosisResult.textContent = '加载失败，请检查网络或重试。';
     });
 });
 </script>

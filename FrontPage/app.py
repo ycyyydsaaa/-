@@ -48,7 +48,8 @@ def process_queue():
             response = requests.post(MODEL_API_URL, data=data, files=files, verify=False)
             response.raise_for_status()
             result = response.json()
-            logging.info(f"大模型返回的数据: {result}")
+            # 注释掉这一行，不再打印大模型返回的数据
+            # logging.info(f"大模型返回的数据: {result}")
             # 将模型返回的结果放入结果队列
             result_queue.put(result)
             data_queue.task_done()
@@ -359,9 +360,9 @@ def batch_upload():
             return jsonify({'status': 'error','message': '等待模型结果超时'}), 500
 
     combined_result = {
-        'status': 'success',
-        'message': '批量图片已处理完成',
-        'results': results
+       'status':'success',
+       'message': '批量图片已处理完成',
+       'results': results
     }
     return jsonify(combined_result)
 
