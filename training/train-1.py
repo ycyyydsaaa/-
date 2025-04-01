@@ -1,6 +1,7 @@
 import os
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, WeightedRandomSampler
 import pandas as pd
@@ -9,7 +10,7 @@ from utils.data_loader import FundusDataset, logger
 from utils.split_dataset import split_dataset
 from models.multimodal_model import MultiModalNet
 import math
-from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.optim.lr_scheduler import OneCycleLR
 from sklearn.metrics import precision_recall_fscore_support
 from tabulate import tabulate
 from tqdm import tqdm
@@ -26,15 +27,16 @@ EXCEL_PATH = r"/data/eye/pycharm_project_257/data/Training_Dataset/labels.xlsx"
 IMG_ROOT = r"/data/eye/pycharm_project_257/data/Training_Dataset/paired_dir"
 disease_cols = ['N', 'D', 'G', 'C', 'A', 'H', 'M', 'O']
 BATCH_SIZE = 8
-EPOCHS = 20
-LR = 5e-5
-TEXT_REG_LAMBDA = 0.01
+EPOCHS = 40
+LR = 1e-4
+TEXT_REG_LAMBDA = 0.005
 
-# 定义权重
+# 定义评估指标权重
 PRECISION_WEIGHT = 0.5
 RECALL_WEIGHT = 0.3
 MICRO_F1_WEIGHT = 0.1
 MACRO_F1_WEIGHT = 0.1
+
 
 def print_tensor_info(tensor, name):
     if tensor is not None:
@@ -44,21 +46,32 @@ def print_tensor_info(tensor, name):
     else:
         print(f"Tensor {name}: None")
 
+
 def custom_collate(batch):
     batch = [item for item in batch if item is not None]
     if len(batch) == 0:
         return {
-            'paired_image': torch.empty(0, 3, 384, 768),
+            'paired_image': torch.empty(0, 3, 256, 512),
             'text_feature': None,
             'meta': torch.empty(0, 2),
             'labels': torch.empty(0, len(disease_cols))
         }
     return torch.utils.data.dataloader.default_collate(batch)
 
+
 def get_memory_usage():
     process = psutil.Process(os.getpid())
     mem_info = process.memory_info()
     return mem_info.rss / 1024 ** 2
+
+
+def contrastive_loss(img_feat, text_feat, temperature=0.07):
+    img_feat = F.normalize(img_feat, dim=-1)
+    text_feat = F.normalize(text_feat, dim=-1)
+    logits = img_feat @ text_feat.T / temperature
+    labels = torch.arange(img_feat.size(0), device=img_feat.device)
+    return F.cross_entropy(logits, labels)
+
 
 def evaluate(model, dataloader, device, disease_cols):
     model.eval()
@@ -72,22 +85,20 @@ def evaluate(model, dataloader, device, disease_cols):
     predicted_positives = torch.zeros(len(disease_cols), device=device)
     actual_positives = torch.zeros(len(disease_cols), device=device)
 
-    eval_bar = tqdm(total=len(dataloader), desc="Evaluation", leave=False)
-    update_interval = max(1, len(dataloader) // 50)
+    # 初始化进度条，不频繁更新
+    eval_bar = tqdm(total=len(disease_cols), desc="Evaluation", leave=False)
 
     with torch.no_grad():
         for batch_idx, batch in enumerate(dataloader):
             if batch is None:
-                if (batch_idx + 1) % update_interval == 0 or batch_idx == len(dataloader) - 1:
-                    eval_bar.update(update_interval if (batch_idx + 1) % update_interval == 0 else 1)
                 continue
 
             paired_img = batch['paired_image'].to(device, dtype=torch.float32)
-            text_feature = None
             meta = batch['meta'].to(device, dtype=torch.float32)
             labels = batch['labels'].to(device, dtype=torch.float32)
 
-            logits, _, _, _, _ = model(paired_img, text_feature, meta)
+            logits, global_feat_weighted, kg_logits, _, _ = model(paired_img, None, meta, use_text=False,
+                                                                  batch_idx=batch_idx)
             logits = torch.nan_to_num(logits, nan=0.0, posinf=1.0, neginf=-1.0)
             preds = torch.sigmoid(logits) > 0.5
 
@@ -111,13 +122,12 @@ def evaluate(model, dataloader, device, disease_cols):
             recall_sum += recall
             f1_sum += f1
 
-            del paired_img, meta, labels, logits, preds
+            del paired_img, meta, labels, logits, preds, global_feat_weighted
             torch.cuda.empty_cache()
             gc.collect()
 
-            if (batch_idx + 1) % update_interval == 0 or batch_idx == len(dataloader) - 1:
-                eval_bar.update(update_interval if (batch_idx + 1) % update_interval == 0 else 1)
-
+    # 一次性更新进度条到完成状态
+    eval_bar.update(len(dataloader))
     eval_bar.close()
     torch.cuda.empty_cache()
     gc.collect()
@@ -176,6 +186,7 @@ def evaluate(model, dataloader, device, disease_cols):
         minority_f1.mean().item()
     )
 
+
 def plot_learning_rate_curve(learning_rates, save_path):
     plt.figure(figsize=(10, 6))
     plt.plot(range(1, len(learning_rates) + 1), learning_rates, marker='o', linestyle='-', color='b')
@@ -186,6 +197,40 @@ def plot_learning_rate_curve(learning_rates, save_path):
     plt.savefig(save_path)
     plt.close()
     tqdm.write(f"学习率曲线已保存到 {save_path}")
+
+
+def compute_alpha_weights(df, disease_cols, device):
+    """计算 Focal Loss 的 alpha 权重，确保值在 (0,1) 范围内"""
+    alpha_weights = []
+    for col in disease_cols:
+        mean_pos = df[col].mean()  # 正样本比例
+        alpha_i = 1 / (1 + math.exp(-(1 / (mean_pos + 1e-3) - 1)))  # 使用 sigmoid 映射到 (0,1)
+        alpha_weights.append(alpha_i)
+    return torch.tensor(alpha_weights, device=device)
+
+
+class StableFocalLoss(nn.Module):
+    """修正后的Focal Loss实现，确保数值稳定性"""
+
+    def __init__(self, gamma=3.0, alpha=None):  # 修改 gamma 为 3.0
+        super(StableFocalLoss, self).__init__()
+        self.gamma = gamma
+        self.alpha = alpha
+        self.bce = nn.BCEWithLogitsLoss(reduction='none')
+
+    def forward(self, inputs, targets):
+        bce_loss = self.bce(inputs, targets)
+        with torch.no_grad():
+            p = torch.sigmoid(inputs)
+            p = torch.clamp(p, min=1e-7, max=1 - 1e-7)
+            p_t = p * targets + (1 - p) * (1 - targets)
+            modulating_factor = (1.0 - p_t + 1e-6).pow(self.gamma)
+        focal_loss = modulating_factor * bce_loss
+        if self.alpha is not None:
+            alpha_t = self.alpha * targets + (1 - self.alpha) * (1 - targets)
+            focal_loss = alpha_t * focal_loss
+        return focal_loss.mean()
+
 
 def train():
     logger.info("开始执行 train 函数")
@@ -202,39 +247,50 @@ def train():
     else:
         tqdm.write("警告: 未检测到 GPU，程序将使用 CPU 运行")
 
+    # 数据加载和预处理
     train_excel_path, test_excel_path = split_dataset(
-        excel_path=EXCEL_PATH,
-        test_size=0.2,
-        random_state=42,
-        disease_cols=disease_cols
-    )
+        excel_path=EXCEL_PATH, test_size=0.2, random_state=42, disease_cols=disease_cols)
 
     train_transform = transforms.Compose([
-        transforms.RandomRotation(30),
-        transforms.RandomHorizontalFlip(),
-        transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3),
-        transforms.RandomResizedCrop((384, 768), scale=(0.8, 1.0)),
+        transforms.ToPILImage(),
+        transforms.RandomRotation(25),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+        transforms.RandomResizedCrop((256, 512), scale=(0.8, 1.0)),
         transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
-    train_dataset = FundusDataset(excel_path=train_excel_path, img_root=IMG_ROOT, disease_cols=disease_cols,
-                                  phase='train', transform=train_transform)
-    test_dataset = FundusDataset(excel_path=test_excel_path, img_root=IMG_ROOT, disease_cols=disease_cols, phase='test')
+    test_transform = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.Resize((256, 512)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+
+    train_dataset = FundusDataset(excel_path=train_excel_path, img_root=IMG_ROOT,
+                                  disease_cols=disease_cols, transform=train_transform)
+    test_dataset = FundusDataset(excel_path=test_excel_path, img_root=IMG_ROOT,
+                                 disease_cols=disease_cols, transform=test_transform)
 
     df = pd.read_excel(train_excel_path)
     labels = torch.tensor(df[disease_cols].values, dtype=torch.float32)
     class_counts = labels.sum(dim=0)
-    class_weights = 1.0 / (class_counts + 1e-6) ** 0.75
+    class_weights = torch.log(1.0 / (class_counts + 1e-6))  # 修改为对数缩放
+    class_weights = class_weights / class_weights.max()
     sample_weights = torch.zeros(len(train_dataset))
     for idx in range(len(train_dataset)):
         label = labels[idx]
         weight = (label * class_weights).sum()
-        sample_weights[idx] = weight * 5
+        sample_weights[idx] = weight * 2
     sampler = WeightedRandomSampler(sample_weights, len(sample_weights))
-    train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, sampler=sampler, num_workers=4,
-                                  collate_fn=custom_collate, pin_memory=True)
-    test_dataloader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=4,
-                                 collate_fn=custom_collate, pin_memory=True)
+    train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, sampler=sampler,
+                                  num_workers=min(4, os.cpu_count() - 1), pin_memory=True,
+                                  collate_fn=custom_collate, persistent_workers=False)
+    test_dataloader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False,
+                                 num_workers=min(4, os.cpu_count() - 1), pin_memory=True,
+                                 collate_fn=custom_collate, persistent_workers=False)
 
+    # 知识图谱构建
     kg = MedicalKG(
         uri="bolt://localhost:7687",
         user="neo4j",
@@ -242,52 +298,47 @@ def train():
         local_dir="/data/eye/pycharm_project_257/kg_data"
     )
     kg.build_kg(df, disease_cols, batch_size=1000)
-
     kg_embeddings = kg.generate_disease_embeddings().to(device)
     A = kg.get_adjacency_matrix().to(device)
-    tqdm.write(f"kg_embeddings shape: {kg_embeddings.shape}, size: {kg_embeddings.element_size() * kg_embeddings.nelement() / 1024 ** 2:.2f} MB")
+    tqdm.write(
+        f"kg_embeddings shape: {kg_embeddings.shape}, size: {kg_embeddings.element_size() * kg_embeddings.nelement() / 1024 ** 2:.2f} MB")
     tqdm.write(f"adjacency_matrix shape: {A.shape}, size: {A.element_size() * A.nelement() / 1024 ** 2:.2f} MB")
     kg._save_local_data()
 
+    # 模型初始化
     model = MultiModalNet(disease_cols=disease_cols, kg_embeddings=kg_embeddings, adjacency_matrix=A).to(device)
     model = model.float()
     model.initialize_kg_logits()
 
-    class FocalLoss(nn.Module):
-        def __init__(self, gamma=4.0, alpha=None):
-            super(FocalLoss, self).__init__()
-            self.gamma = gamma
-            self.alpha = alpha
-            self.bce = nn.BCEWithLogitsLoss(reduction='none')
+    # 损失函数
+    alpha_weights = compute_alpha_weights(df, disease_cols, device)
+    criterion_cls = StableFocalLoss(gamma=3.0, alpha=alpha_weights)  # 修改 gamma
 
-        def forward(self, inputs, targets):
-            bce_loss = self.bce(inputs, targets)
-            bce_loss = torch.clamp(bce_loss, max=100.0)
-            p_t = torch.exp(-bce_loss)
-            focal_loss = ((1 - p_t) ** self.gamma) * bce_loss
-            if self.alpha is not None:
-                alpha_t = self.alpha * targets + (1 - self.alpha) * (1 - targets)
-                focal_loss = alpha_t * focal_loss
-            return focal_loss.mean()
-
-    alpha_weights = torch.tensor([1.0 / df[col].mean() if df[col].mean() > 0 else 50.0 for col in disease_cols],
-                                 device=device).clamp(max=50.0)
-    criterion_cls = FocalLoss(gamma=4.0, alpha=alpha_weights)
-
-    optimizer = optim.Adam([
-        {'params': model.feature_extractor.parameters(), 'lr': 2.5e-5},
+    # 优化器和学习率调度器
+    optimizer = optim.AdamW([
+        {'params': model.feature_extractor.parameters(), 'lr': 5e-5},
         {'params': model.text_proj.parameters(), 'lr': 1e-4},
-        {'params': model.feat_adapter.parameters()},
-        {'params': [p for n, p in model.named_parameters() if
-                    not n.startswith(('feature_extractor', 'text_proj', 'feat_adapter'))]}
-    ], lr=LR, weight_decay=1e-5)
-    scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=2, verbose=True)
+        {'params': model.feat_adapter.parameters(), 'lr': 1e-4},
+        {'params': [p for n, p in model.named_parameters()
+                    if not n.startswith(('feature_extractor', 'text_proj', 'feat_adapter'))], 'lr': 3e-4}
+    ], weight_decay=1e-4)
 
-    accum_steps = 1
-    best_minority_f1 = 0.0
-    patience = 5
+    scheduler = OneCycleLR(
+        optimizer,
+        max_lr=[1e-4, 1e-4, 1e-4, 2e-4],  # 降低 max_lr
+        total_steps=EPOCHS * len(train_dataloader),
+        pct_start=0.5,  # 延长上升期
+        anneal_strategy='cos',
+        cycle_momentum=False,
+        div_factor=10.0,
+        final_div_factor=1e3
+    )
+
+    # 训练变量初始化
+    best_score = 0.0
+    patience = 15
     epochs_no_improve = 0
-    learning_rates = []  # 用于记录学习率
+    learning_rates = []
 
     for epoch in range(EPOCHS):
         model.train()
@@ -305,7 +356,7 @@ def train():
             labels = batch['labels'].to(device, dtype=torch.float32)
             text_feature = batch.get('text_feature', None)
 
-            if text_feature is not None and torch.rand(1).item() >= 0.2:
+            if text_feature is not None and torch.rand(1).item() < 0.9:
                 text_feature = None
             use_text = text_feature is not None
             if use_text:
@@ -318,61 +369,84 @@ def train():
                 if text_feature.size(0) != expected_batch_size:
                     text_feature = text_feature.repeat(expected_batch_size, 1)
 
-            logits, _, kg_logits, _, _ = model(paired_img, text_feature, meta, use_text=use_text, batch_idx=batch_idx)
+            logits, global_feat_weighted, kg_logits, _, _ = model(paired_img, text_feature, meta, use_text=use_text,
+                                                                  batch_idx=batch_idx)
+
+            if torch.isnan(logits).any() or torch.isinf(logits).any():
+                print(f"Invalid logits detected at batch {batch_idx}, skipping...")
+                continue
+
             loss_cls = criterion_cls(logits, labels)
             text_reg_loss = 0.0
             if use_text:
                 for name, param in model.text_proj.named_parameters():
                     text_reg_loss += torch.norm(param, p=2)
                 text_reg_loss = TEXT_REG_LAMBDA * text_reg_loss
+                text_feat = model.text_proj(text_feature)
+                text_feat = model.feat_adapter(text_feat)
+                contrastive_loss_val = 0.1 * contrastive_loss(global_feat_weighted, text_feat)
+                total_loss = (loss_cls + text_reg_loss + contrastive_loss_val)
+            else:
+                total_loss = loss_cls
 
-            total_loss = (loss_cls + text_reg_loss) / accum_steps
             total_loss.backward()
+            grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5)  # 增大 max_norm
+            if batch_idx % 50 == 0:
+                tqdm.write(f"Batch {batch_idx}, Grad Norm: {grad_norm:.4f}")
+            optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
+            scheduler.step()
 
-            if (batch_idx + 1) % accum_steps == 0:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.5)
-                optimizer.step()
-                optimizer.zero_grad(set_to_none=True)
+            running_loss += total_loss.item()
+            current_lr = optimizer.param_groups[0]['lr']
+            learning_rates.append(current_lr)
 
-            running_loss += total_loss.item() * accum_steps
+            # 中间验证
+            if batch_idx % 144 == 0:
+                model.eval()
+                with torch.no_grad():
+                    val_results = evaluate(model, test_dataloader, device, disease_cols)
+                    micro_f1 = val_results[2]
+                    tqdm.write(f"Epoch {epoch + 1}, Batch {batch_idx}, Micro F1: {micro_f1:.4f}")
+                model.train()
 
-            del paired_img, meta, labels, logits, kg_logits, loss_cls, total_loss
+            epoch_bar.set_postfix({'loss': f"{running_loss / (batch_idx + 1):.4f}", 'lr': f"{current_lr:.2e}"})
+            epoch_bar.update(1)
+
+            del paired_img, meta, labels, logits, kg_logits, loss_cls, total_loss, global_feat_weighted
             if text_feature is not None:
                 del text_feature
             torch.cuda.empty_cache()
             gc.collect()
-            epoch_bar.update(1)
 
         epoch_bar.close()
         avg_loss = running_loss / len(train_dataloader)
-        current_lr = optimizer.param_groups[0]['lr']
-        learning_rates.append(current_lr)  # 记录当前学习率
-        tqdm.write(f"Epoch {epoch + 1}/{EPOCHS} Loss: {avg_loss:.4f}, Learning Rate: {current_lr:.6f}")
+        tqdm.write(f"Epoch {epoch + 1}/{EPOCHS} Loss: {avg_loss:.4f}")
 
-        full_match_accuracy, accuracy_per_disease, micro_f1, macro_f1, micro_precision, micro_recall, minority_f1 = evaluate(
-            model, test_dataloader, device, disease_cols)
+        val_results = evaluate(model, test_dataloader, device, disease_cols)
+        full_match_accuracy, accuracy_per_disease, micro_f1, macro_f1, micro_precision, micro_recall, minority_f1 = val_results
+
         score = (PRECISION_WEIGHT * micro_precision +
                  RECALL_WEIGHT * micro_recall +
                  MICRO_F1_WEIGHT * micro_f1 +
                  MACRO_F1_WEIGHT * macro_f1)
 
-        scheduler.step(minority_f1)
-
-        if minority_f1 > best_minority_f1:
-            best_minority_f1 = minority_f1
+        if score > best_score:
+            best_score = score
             epochs_no_improve = 0
             save_path = "/data/eye/pycharm_project_257/models/best_multimodal_model.pth"
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
             torch.save({
                 'model_state_dict': model.state_dict(),
                 'kg_embeddings': model.kg_embeddings,
-                'disease_cols': disease_cols
+                'disease_cols': disease_cols,
+                'scheduler_state': scheduler.state_dict()
             }, save_path)
-            tqdm.write(f"保存最佳模型，Minority F1: {minority_f1:.4f}, Score: {score:.4f} (Precision: {micro_precision:.4f}, Recall: {micro_recall:.4f}, Micro F1: {micro_f1:.4f}, Macro F1: {macro_f1:.4f})")
+            tqdm.write(f"保存最佳模型，Total Score: {score:.4f}, Minority F1: {minority_f1:.4f}")
         else:
             epochs_no_improve += 1
             if epochs_no_improve >= patience:
-                tqdm.write(f"Early stopping at epoch {epoch + 1}, best Minority F1: {best_minority_f1:.4f}")
+                tqdm.write(f"Early stopping at epoch {epoch + 1}, best Total Score: {best_score:.4f}")
                 break
 
         current_memory = get_memory_usage()
@@ -388,17 +462,18 @@ def train():
     torch.save({
         'model_state_dict': model.state_dict(),
         'kg_embeddings': model.kg_embeddings,
-        'disease_cols': disease_cols
+        'disease_cols': disease_cols,
+        'scheduler_state': scheduler.state_dict()
     }, save_path)
     tqdm.write(f"模型已保存到 {save_path}")
 
-    # 绘制并保存学习率曲线
-    lr_curve_path = "/data/eye/pycharm_project_257/plots/learning_rate_curve.png"
-    os.makedirs(os.path.dirname(lr_curve_path), exist_ok=True)
-    plot_learning_rate_curve(learning_rates, lr_curve_path)
+    plot_learning_rate_curve(learning_rates,
+                             "/data/eye/pycharm_project_257/plots/learning_rate_curve.png")
 
     model.clear_resources()
     kg.clear_cache()
+    train_dataset.clear_cache()
+    test_dataset.clear_cache()
     del model, optimizer, scheduler, train_dataset, train_dataloader, test_dataset, test_dataloader, kg, df
     if 'kg_embeddings' in locals():
         del kg_embeddings
@@ -410,6 +485,7 @@ def train():
     final_memory = get_memory_usage()
     tqdm.write(f"最终内存使用量: {final_memory:.2f} MB")
     tqdm.write(f"内存变化: {final_memory - initial_memory:.2f} MB")
+
 
 if __name__ == "__main__":
     train()

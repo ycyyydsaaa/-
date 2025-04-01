@@ -4,7 +4,12 @@ import pickle
 import torch
 from py2neo import Graph, Node, Relationship
 from torch_geometric.data import Data
-from torch_geometric.nn import GCNConv
+try:
+    from torch_geometric.nn import GCNConv
+except ImportError:
+    import logging
+    logging.error("torch_geometric 未安装，请运行 'pip install torch-geometric'")
+    raise
 import pandas as pd
 import torch.nn.functional as F
 import logging
@@ -22,7 +27,7 @@ def print_tensor_info(tensor, name):
         print(f"Tensor {name}: None")
 
 class MedicalKG:
-    def __init__(self, uri="bolt://0.tcp.ap.ngrok.io:16358", user="neo4j", password="120190333", local_dir="/data/coding/eye/pycharm_project_257/kg_data"):
+    def __init__(self, uri="bolt://0.tcp.ap.ngrok.io:12107", user="neo4j", password="120190333", local_dir="/data/eye/pycharm_project_257/kg_data"):
         self.uri = uri
         self.user = user
         self.password = password
@@ -58,9 +63,12 @@ class MedicalKG:
             logger.error("输入的 DataFrame 为空，无法构建知识图谱")
             raise ValueError("输入的 DataFrame 为空")
 
-        if self._load_local_data():
-            logger.info("从本地加载知识图谱数据")
+        # 检查本地数据是否需要更新
+        if self._load_local_data() and self.kg_embeddings.shape[1] == 256:
+            logger.info("从本地加载知识图谱数据（维度正确）")
             return
+        else:
+            logger.info("本地数据维度不匹配或不存在，重新生成知识图谱")
 
         self._connect_to_neo4j()
         if self.graph is None:
@@ -199,8 +207,8 @@ class MedicalKG:
         self.all_symptoms_cache = list(set([record["s.name"] for record in result]))
         return self.all_symptoms_cache
 
-    def generate_disease_embeddings(self, embedding_dim=128):
-        if self.kg_embeddings is not None:
+    def generate_disease_embeddings(self, embedding_dim=256):
+        if self.kg_embeddings is not None and self.kg_embeddings.shape[1] == embedding_dim:
             return self.kg_embeddings
         if self.disease_cols is None:
             logger.error("disease_cols 未初始化，请先调用 build_kg 方法")
@@ -216,8 +224,8 @@ class MedicalKG:
         edge_index = self._get_edge_index()
 
         data = Data(x=x, edge_index=edge_index)
-        gcn1 = GCNConv(embedding_dim, 256)
-        gcn2 = GCNConv(256, embedding_dim)
+        gcn1 = GCNConv(embedding_dim, 512)
+        gcn2 = GCNConv(512, embedding_dim)
         with torch.no_grad():
             x = F.relu(gcn1(data.x, data.edge_index))
             embeddings = gcn2(x, data.edge_index)
