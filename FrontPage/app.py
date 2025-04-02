@@ -31,7 +31,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 # 假设大模型的 API 端点
-MODEL_API_URL = 'https://df09-2001-250-4400-86-00-1729.ngrok-free.app/predict'
+MODEL_API_URL = 'https://1594-2001-250-4400-86-00-1729.ngrok-free.app/predict'
 
 # 创建队列
 data_queue = queue.Queue()
@@ -166,8 +166,8 @@ def upload_data():
 
         # 通过 Socket 发送 HTTP POST 请求给服务端进行预处理
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        # 将超时时间延长到 60 秒
-        client_socket.settimeout(60)
+        # 将超时时间延长到 1800 秒（半小时）
+        client_socket.settimeout(1800)
         try:
             client_socket.connect(server_address)
             client_socket.sendall(http_request)
@@ -215,8 +215,8 @@ def upload_data():
     data_queue.put((data, files))
 
     try:
-        # 从结果队列中获取模型返回的结果
-        result = result_queue.get(timeout=60)
+        # 从结果队列中获取模型返回的结果，将超时时间延长到 1800 秒（半小时）
+        result = result_queue.get(timeout=1800)
         return jsonify({
            'status': result.get('status','success'),
            'message': result.get('message', '数据和图像已放入队列等待处理'),
@@ -234,7 +234,7 @@ def upload_data():
         })
     except queue.Empty:
         logging.error("等待模型结果超时")
-        return jsonify({'status': 'error','message': '等待模型结果超时'}), 500
+        return jsonify({'status': 'error','message': '等待模型结果超时'}), 5000
 
 # 路由：处理批量上传请求
 @app.route('/batch_upload', methods=['POST'])
@@ -302,8 +302,8 @@ def batch_upload():
 
         # 通过 Socket 发送 HTTP POST 请求给服务端进行预处理
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        # 将超时时间延长到 60 秒
-        client_socket.settimeout(60)
+        #将超时时间延长到 1800 秒（半小时）
+        client_socket.settimeout(1800)
         try:
             client_socket.connect(server_address)
             logging.info(f"已连接到预处理服务: {server_address}")
@@ -352,8 +352,8 @@ def batch_upload():
         data_queue.put((data, files))
 
         try:
-            # 从结果队列中获取模型返回的结果
-            result = result_queue.get(timeout=60)
+            # 从结果队列中获取模型返回的结果，将超时时间延长到 1800 秒（半小时）
+            result = result_queue.get(timeout=1800)
             results.append(result)
         except queue.Empty:
             logging.error("等待模型结果超时")

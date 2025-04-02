@@ -34,7 +34,7 @@
             display: flex;
             flex-direction: column;
             justify-content: center;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 8px 32px 0 rgba(124, 125, 141, 0.501);
         }
 
        .upload-box:hover {
@@ -54,7 +54,7 @@
             display: flex;
             flex-direction: column;
             justify-content: center;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 8px 32px 0 rgba(124, 125, 141, 0.501);
         }
 
         /* 预览区 */
@@ -62,7 +62,7 @@
             background-color: white;
             padding: 15px;
             border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 8px 32px 0 rgba(124, 125, 141, 0.501);
             text-align: center;
             width: 100%;
         }
@@ -319,7 +319,7 @@
     </footer>
 
     <script>
-       document.getElementById('file-input').addEventListener('change', function (event) {
+      document.getElementById('file-input').addEventListener('change', function (event) {
     const files = event.target.files;
     const previewGrid = document.getElementById('preview-grid');
     // 检查上传的图像数量是否为偶数
@@ -445,7 +445,7 @@ document.getElementById('submit-btn').addEventListener('click', async function (
                 const reportText = reportBox.querySelector('p');
                 const heatmapSection = reportBox.querySelector('#heatmap-section');
 
-                let diagnosisText = "<strong style='font-size: larger;'>智能诊断结果</strong><br>"; // 增大诊断结果标题字体大小
+                let diagnosisText = "<strong style='font-size: x-large;'>智能诊断结果</strong><br>"; // 增大诊断结果标题字体大小
                 let diseases = [];
                 if (results[index] && Array.isArray(results[index].predictions) && results[index].diseases) {
                     results[index].predictions.forEach((pred, predIndex) => {
@@ -485,16 +485,19 @@ document.getElementById('submit-btn').addEventListener('click', async function (
                 if (diseases.length === 0) {
                     diagnosisText += "<span style='font-size: larger;'>未检测到疾病</span>";
                 } else {
-                    diagnosisText += "<span style='font-size: larger;'>疾病类型：</span>";
-                    diseases.forEach((disease, index) => {
+                    diagnosisText += "<span style='font-size: larger;'>诊断结果：</span>";
+                    diseases.forEach((disease, diseaseIndex) => {
                         diagnosisText += `<span style='font-size: larger;'>${disease}</span>`;
-                        if (index!== diseases.length - 1) {
-                            diagnosisText += '<br>';
+                        if (diseaseIndex!== diseases.length - 1) {
+                            diagnosisText += '，';
                         }
                     });
+                    diagnosisText += "<br><br><strong style='font-size: x-large;'>治疗建议：</strong><br>";
+                    diseases.forEach((disease) => {
+                        diagnosisText += generateTreatmentAdvice(disease);
+                    });
                 }
-                diagnosisText +="<br>"
-                diagnosisText += "<br><strong style='font-size: larger;'>热力图</strong><br>";
+                diagnosisText += "<br><br><strong style='font-size: x-large;'>热力图</strong><br>";
 
                 reportText.innerHTML = diagnosisText;
                 reportBox.style.textAlign = 'left';
@@ -502,19 +505,19 @@ document.getElementById('submit-btn').addEventListener('click', async function (
 
                 if (results[index] && results[index].heatmaps) {
                     heatmapSection.classList.remove('hidden');
-                    const heatmapObj = results[index].heatmaps;
-                    if (Array.isArray(heatmapObj)) {
-                        heatmapObj.forEach((singleHeatmap) => {
+                    const heatmapObjs = results[index].heatmaps;
+                    if (Array.isArray(heatmapObjs)) {
+                        heatmapObjs.forEach((heatmapObj) => {
                             const img = document.createElement('img');
-                            img.src = singleHeatmap.heatmap;
-                            img.alt = `Disease: ${singleHeatmap.disease}`;
+                            img.src = heatmapObj.heatmap;
+                            img.alt = `Disease: ${heatmapObj.disease}`;
                             img.className = 'rounded shadow-md max-w-full h-auto my-2';
                             heatmapSection.appendChild(img);
                         });
                     } else {
                         const img = document.createElement('img');
-                        img.src = heatmapObj.heatmap;
-                        img.alt = `Disease: ${heatmapObj.disease}`;
+                        img.src = heatmapObjs.heatmap;
+                        img.alt = `Disease: ${heatmapObjs.disease}`;
                         img.className = 'rounded shadow-md max-w-full h-auto my-2';
                         heatmapSection.appendChild(img);
                     }
@@ -527,6 +530,8 @@ document.getElementById('submit-btn').addEventListener('click', async function (
                 const reportBox = group.querySelector('.diagnosis-report');
                 const reportText = reportBox.querySelector('p');
                 reportText.textContent = '加载失败，请检查网络或重试。';
+                const heatmapSection = reportBox.querySelector('#heatmap-section');
+                heatmapSection.style.display = 'none';
             });
         }
     } catch (error) {
@@ -536,9 +541,69 @@ document.getElementById('submit-btn').addEventListener('click', async function (
             const reportBox = group.querySelector('.diagnosis-report');
             const reportText = reportBox.querySelector('p');
             reportText.textContent = '加载失败，请检查网络或重试。';
+            const heatmapSection = reportBox.querySelector('#heatmap-section');
+            heatmapSection.style.display = 'none';
         });
     }
 });
+
+function generateTreatmentAdvice(disease) {
+    let advice = `<span style='font-size: larger;'><strong>${disease}：</strong><br>`;
+    switch (disease) {
+        case '高血压':
+            advice += `有效控制高血压，使病变吸收消退<br>`;
+            break;
+        case '近视':
+            advice += `1. 矫正镜片：<br>`;
+            advice += `    (1) 框架眼镜，简单安全，可矫正多种屈光不正。<br>`;
+            advice += `    (2) 隐形眼镜，直接戴在角膜上，材料和护理有差异<br>`;
+            advice += `2. 屈光手术：<br>`;
+            advice += `    (1) LASIK，做角膜瓣后用激光使角膜变平，恢复快、不适感少<br>`;
+            advice += `    (2) LASEK，做超薄角膜瓣，激光重塑角膜后放回上皮<br>`;
+            advice += `    (3) PRK，去除上皮后激光重塑角膜，靠上皮自然再生<br>`;
+            advice += `    (4) SMILE，不做角膜瓣和去除上皮，取出角膜基质透镜<br>`;
+            advice += `3. 减缓近视度数加深疗法：<br>`;
+            advice += `    (1) 低剂量阿托品滴眼液，可减缓近视进展<br>`;
+            advice += `    (2) 延长户外时间，降低近视风险<br>`;
+            advice += `    (3) 双焦点隐形眼镜，对减缓近视有一定效果<br>`;
+            advice += `    (4) 矫正角膜术，夜间佩戴硬性隐形眼镜重塑角膜<br></span>`;
+            break;
+        case 'AMD':
+            advice += `1. 湿性：<br>`;
+            advice += `    (1) 眼内注射抗VEGF药物抑制新生血管，如雷珠单抗、阿柏西普<br>`;
+            advice += `    (2) 光动力疗法用激光激活药物封闭异常血管<br>`;
+            advice += `    (3) 激光光凝术直接破坏异常血管<br>`;
+            advice += `    (4) 手术治疗如黄斑转位术、视网膜下新生血管膜切除术<br>`;
+            advice += `2. 干性：<br>`;
+            advice += `    (1) 中晚期服特定维生素矿物质制剂<br>`;
+            advice += `    (2) 低视力康复专家协助适应视力变化<br>`;
+            advice += `    (3) 部分晚期患者可植入可伸缩式人工晶体<br></span>`;
+            break;
+        case '白内障':
+            advice += `手术是有效治疗手段，晶状体乳化法是常见手术方式<br></span>`;
+            break;
+        case '糖尿病':
+            advice += `1. 早期病变：<br>轻度或中度NPDR可能无需立即治疗，密切监测<br>`;
+            advice += `2. 晚期病变：<br>`;
+            advice += `    (1) 眼内注药抑制新血管生长和体液积聚<br>`;
+            advice += `    (2) 光凝阻止或减缓血液和液体渗漏<br>`;
+            advice += `    (3) 全视网膜光凝使异常血管萎缩<br>`;
+            advice += `    (4) 玻璃体切除术清除血液和瘢痕组织<br></span>`;
+            break;
+        case '青光眼':
+            advice += `1. 处方滴眼液，如前列腺素类等多种药物<br>`;
+            advice += `2. 口服药物，通常为碳酸酐酶抑制剂<br>`;
+            advice += `3. 激光疗法，如激光小梁成形术<br>`;
+            advice += `4. 手术，如小梁切除术等<br></span>`;
+            break;
+        case '正常':
+            advice += `无<br></span>`;
+            break;
+        default:
+            advice += `无特定治疗建议，请咨询医生<br></span>`;
+    }
+    return advice;
+}
         </script>
 </body>
 </html>

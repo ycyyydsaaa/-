@@ -243,19 +243,22 @@
                     提交分析
                 </button>
             </form>
+
             <!-- 诊断结果显示 -->
-            <div id="result-section" class="mt-6 p-4 bg-gray-200 rounded hidden fade-in">
-                <h3 class="text-lg font-medium">智能诊断结果</h3>
-                <p id="diagnosis-result" class="mt-2 text-gray-800"></p>
-                <div id="heatmap-section" class="mt-4 hidden">
-                    <h3 class="text-lg font-medium">热力图</h3>
-                    <img id="heatmap" class="mt-2 rounded shadow-md max-w-full h-auto" />
-                </div>
-                <div id="lesion-section" class="mt-4 hidden">
-                    <h3 class="text-lg font-medium">预测疗效位置</h3>
-                    <img id="lesion-map" class="mt-2 rounded shadow-md max-w-full h-auto" />
-                </div>
-            </div>
+<div id="result-section" class="mt-6 p-4 bg-gray-200 rounded hidden fade-in">
+    <h3 class="text-2xl font-medium"><strong>智能诊断结果</strong></h3>
+    <p id="diagnosis-result" class="mt-2 text-lg text-gray-800"></p>
+    <div id="treatment-section" class="mt-4">
+        <h3 class="text-2xl font-medium"><strong>治疗建议</strong></h3>
+        <p id="treatment-advice" class="mt-2 text-lg text-gray-800"></p>
+    </div>
+    <div id="heatmap-section" class="mt-4 hidden">
+        <h3 class="text-2xl font-medium"><strong>热力图</strong></h3>
+        <img id="heatmap" class="mt-2 rounded shadow-md max-w-full h-auto" />
+    </div>
+</div>
+
+</div>
         </section>
 
         <!-- 给 #services 加 glassmorphism 类 -->
@@ -264,7 +267,7 @@
             <ul class="list-disc pl-6">
                 <li>眼底影像自动分析</li>
                 <li>白内障、青光眼等疾病检测</li>
-                <li>详细诊断报告生成</li>
+                <li>治疗建议生成</li>
                 <li>眼底热力图生成</li>
             </ul>
         </section>
@@ -383,58 +386,128 @@ document.getElementById('upload-form').addEventListener('submit', function (even
     const diagnosisResult = document.getElementById('diagnosis-result');
     diagnosisResult.textContent = '正在加载中...';
 
+    // 隐藏治疗建议部分
+    const treatmentSection = document.getElementById('treatment-section');
+    treatmentSection.style.display = 'none';
+
     // 发送AJAX请求到Flask
     fetch("/upload", {
         method: "POST",
         body: formData
     })
-   .then(response => response.json())
-   .then(data => {
-        console.log("上传:", data);
-        // 更新为实际的诊断结果
-        const predictions = data.predictions;
-        const diseases = data.diseases;
-        const diseaseMap = {
-            'N': '正常',
-            'D': '糖尿病',
-            'G': '青光眼',
-            'C': '白内障',
-            'A': 'AMD',
-            'H': '高血压',
-            'M': '近视',
-            'O': '其他疾病/异常'
-        };
-        let diagnosisText = "诊断结果: ";
-        for (let i = 0; i < predictions.length; i++) {
-            if (predictions[i] === 1) {
-                diagnosisText += diseaseMap[diseases[i]] + " ";
+      .then(response => response.json())
+      .then(data => {
+            console.log("上传:", data);
+            const predictions = data.predictions;
+            const diseases = data.diseases;
+            const diseaseMap = {
+                'N': '正常',
+                'D': '糖尿病',
+                'G': '青光眼',
+                'C': '白内障',
+                'A': 'AMD',
+                'H': '高血压',
+                'M': '近视',
+                'O': '其他疾病/异常'
+            };
+            let diagnosisText = "<span class='text-lg'>诊断结果: </span>";
+            let treatmentAdviceText = "";
+
+            for (let i = 0; i < predictions.length; i++) {
+                if (predictions[i] === 1) {
+                    diagnosisText += `<span class='text-lg'>${diseaseMap[diseases[i]]}</span> `;
+
+                    treatmentAdviceText += `<strong class="text-lg">${diseaseMap[diseases[i]]}：</strong><br>`;
+                    switch (diseases[i]) {
+                        case 'H':
+                            treatmentAdviceText += `<span class="text-lg">有效控制高血压，使病变吸收消退<br></span>`;
+                            break;
+                        case 'N':
+                            treatmentAdviceText += `<span class="text-lg">无<br></span>`;
+                            break;
+                        case 'M':
+                            treatmentAdviceText += `<span class="text-lg">1. 矫正镜片：<br>`;
+                            treatmentAdviceText += `    (1) 框架眼镜，简单安全，可矫正多种屈光不正。<br>`;
+                            treatmentAdviceText += `    (2) 隐形眼镜，直接戴在角膜上，材料和护理有差异<br>`;
+                            treatmentAdviceText += `2. 屈光手术：<br>`;
+                            treatmentAdviceText += `    (1) LASIK，做角膜瓣后用激光使角膜变平，恢复快、不适感少<br>`;
+                            treatmentAdviceText += `    (2) LASEK，做超薄角膜瓣，激光重塑角膜后放回上皮<br>`;
+                            treatmentAdviceText += `    (3) PRK，去除上皮后激光重塑角膜，靠上皮自然再生<br>`;
+                            treatmentAdviceText += `    (4) SMILE，不做角膜瓣和去除上皮，取出角膜基质透镜<br>`;
+                            treatmentAdviceText += `3. 减缓近视度数加深疗法：<br>`;
+                            treatmentAdviceText += `    (1) 低剂量阿托品滴眼液，可减缓近视进展<br>`;
+                            treatmentAdviceText += `    (2) 延长户外时间，降低近视风险<br>`;
+                            treatmentAdviceText += `    (3) 双焦点隐形眼镜，对减缓近视有一定效果<br>`;
+                            treatmentAdviceText += `    (4) 矫正角膜术，夜间佩戴硬性隐形眼镜重塑角膜<br></span>`;
+                            break;
+                        case 'A':
+                            treatmentAdviceText += `<span class="text-lg">1. 湿性：<br>`;
+                            treatmentAdviceText += `    (1) 眼内注射抗VEGF药物抑制新生血管，如雷珠单抗、阿柏西普<br>`;
+                            treatmentAdviceText += `    (2) 光动力疗法用激光激活药物封闭异常血管<br>`;
+                            treatmentAdviceText += `    (3) 激光光凝术直接破坏异常血管<br>`;
+                            treatmentAdviceText += `    (4) 手术治疗如黄斑转位术、视网膜下新生血管膜切除术<br>`;
+                            treatmentAdviceText += `2. 干性：<br>`;
+                            treatmentAdviceText += `    (1) 中晚期服特定维生素矿物质制剂<br>`;
+                            treatmentAdviceText += `    (2) 低视力康复专家协助适应视力变化<br>`;
+                            treatmentAdviceText += `    (3) 部分晚期患者可植入可伸缩式人工晶体<br></span>`;
+                            break;
+                        case 'C':
+                            treatmentAdviceText += `<span class="text-lg">手术是有效治疗手段，晶状体乳化法是常见手术方式<br></span>`;
+                            break;
+                        case 'D':
+                            treatmentAdviceText += `<span class="text-lg">1. 早期病变：<br>  轻度或中度NPDR可能无需立即治疗，密切监测<br>`;
+                            treatmentAdviceText += `2. 晚期病变:<br>`;
+                            treatmentAdviceText += `    (1) 眼内注药抑制新血管生长和体液积聚<br>`;
+                            treatmentAdviceText += `    (2) 光凝阻止或减缓血液和液体渗漏<br>`;
+                            treatmentAdviceText += `    (3) 全视网膜光凝使异常血管萎缩<br>`;
+                            treatmentAdviceText += `    (4) 玻璃体切除术清除血液和瘢痕组织<br></span>`;
+                            break;
+                        case 'G':
+                            treatmentAdviceText += `<span class="text-lg">1. 处方滴眼液，如前列腺素类等多种药物<br>`;
+                            treatmentAdviceText += `2. 口服药物，通常为碳酸酐酶抑制剂<br>`;
+                            treatmentAdviceText += `3. 激光疗法，如激光小梁成形术<br>`;
+                            treatmentAdviceText += `4. 手术，如小梁切除术等<br></span>`;
+                            break;
+                        default:
+                            treatmentAdviceText += `<span class="text-lg">无<br></span>`;
+                    }
+                    treatmentAdviceText +='<br>'
+                }
             }
-        }
-        diagnosisResult.textContent = diagnosisText;
+            diagnosisResult.innerHTML = diagnosisText;
+            const treatmentAdviceElement = document.getElementById('treatment-advice');
+            // 将 \n 替换为 <br> 以实现换行效果
+            const formattedTreatmentAdvice = treatmentAdviceText.replace(/\n/g, '<br>');
+            treatmentAdviceElement.innerHTML = formattedTreatmentAdvice;
 
-        // 显示热力图
-        const heatmapSection = document.getElementById('heatmap-section');
-        const heatmapContainer = document.createElement('div');
-        heatmapContainer.className ='mt-2';
+            // 如果有治疗建议文本，则显示治疗建议部分
+            if (treatmentAdviceText.trim()!== "") {
+                treatmentSection.style.display = 'block';
+            }
 
-        if (data.heatmaps && data.heatmaps.length > 0) {
-            heatmapSection.classList.remove('hidden');
-            data.heatmaps.forEach(heatmapObj => {
-                const img = document.createElement('img');
-                img.src = heatmapObj.heatmap;
-                img.alt = `Disease: ${heatmapObj.disease}`;
-                img.className = 'rounded shadow-md max-w-full h-auto my-2';
-                heatmapContainer.appendChild(img);
-            });
-            heatmapSection.appendChild(heatmapContainer);
-        }
-    })
-   .catch(error => {
-        console.error('Error:', error);
-        // 加载出错时更新提示信息
-        diagnosisResult.textContent = '加载失败，请检查网络或重试。';
-    });
+            // 显示热力图（后面代码不变）
+            const heatmapSection = document.getElementById('heatmap-section');
+            const heatmapContainer = document.createElement('div');
+            heatmapContainer.className = 'mt-2';
+
+            if (data.heatmaps && data.heatmaps.length > 0) {
+                heatmapSection.classList.remove('hidden');
+                data.heatmaps.forEach(heatmapObj => {
+                    const img = document.createElement('img');
+                    img.src = heatmapObj.heatmap;
+                    img.alt = `Disease: ${heatmapObj.disease}`;
+                    img.className = 'rounded shadow-md max-w-full h-auto my-2';
+                    heatmapContainer.appendChild(img);
+                });
+                heatmapSection.appendChild(heatmapContainer);
+            }
+        })
+      .catch(error => {
+            console.error('Error:', error);
+            diagnosisResult.textContent = '加载失败，请检查网络或重试。';
+        });
 });
+
 </script>
 </body>
 
