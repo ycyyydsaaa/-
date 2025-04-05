@@ -68,6 +68,9 @@ try:
     if not os.path.exists(MODEL_PATH):
         raise FileNotFoundError(f"模型文件未找到: {MODEL_PATH}")
     checkpoint = torch.load(MODEL_PATH, map_location=device)
+    # 修改：加载阈值参数
+    model.thresholds = checkpoint.get('thresholds', torch.full((len(disease_cols),), 0.5, device=device))
+    logger.info(f"模型已从 {MODEL_PATH} 加载，阈值: {model.thresholds}")
     # 使用 strict=False 忽略 state_dict 中多余的键（如 kg_logits）
     model.load_state_dict(checkpoint['model_state_dict'], strict=False)
     # 加载 kg_embeddings
@@ -177,7 +180,11 @@ def predict():
             with autocast():
                 logits, _, kg_logits, _, _ = model(paired_img, text_feature, meta, use_text=use_text)
                 probs = torch.sigmoid(logits)
-                preds = (probs > 0.5).int().cpu().numpy()[0]
+                # 修改：使用动态阈值
+                if hasattr(model, 'thresholds'):
+                    preds = (probs > model.thresholds).int().cpu().numpy()[0]
+                else:
+                    preds = (probs > 0.5).int().cpu().numpy()[0]
 
         if preds[0] == 1:
             preds[1:] = 0

@@ -2,7 +2,6 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision.models import densenet
 from efficientnet_pytorch import EfficientNet
 from pytorch_grad_cam import GradCAM
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
@@ -30,30 +29,39 @@ def print_tensor_info(tensor, name):
 class HybridFeatureExtractor(nn.Module):
     def __init__(self, output_dim=2048):
         super().__init__()
-        self.densenet = densenet.densenet121(weights='DenseNet121_Weights.IMAGENET1K_V1')
-        self.densenet.classifier = nn.Identity()
-        for name, param in self.densenet.features.named_parameters():
-            if 'denseblock1' in name or 'denseblock2' in name:
-                param.requires_grad = False
-
+        # 初始化 EfficientNet-B5，所有层默认可训练
         self.efficientnet = EfficientNet.from_pretrained('efficientnet-b5')
-        self.efficientnet._fc = nn.Identity()
-        for i, block in enumerate(self.efficientnet._blocks):
-            if i < 30:
-                for param in block.parameters():
-                    param.requires_grad = False
+        self.efficientnet._fc = nn.Identity()  # 替换全连接层为 Identity
 
-        self.proj = nn.Conv2d(3072, output_dim, kernel_size=1, bias=False)
+        # 投影层，输入通道数为左右眼特征拼接后的通道数（2048 * 2 = 4096）
+        self.proj = nn.Conv2d(4096, output_dim, kernel_size=1, bias=False)
 
     def forward(self, x):
-        densenet_feat_map = self.densenet.features(x)
-        efficientnet_feat_map = self.efficientnet.extract_features(x)
-        if densenet_feat_map.size()[2:] != efficientnet_feat_map.size()[2:]:
-            efficientnet_feat_map = F.interpolate(efficientnet_feat_map, size=densenet_feat_map.size()[2:],
-                                                  mode='bilinear', align_corners=False)
-        fused_feat_map = torch.cat([densenet_feat_map, efficientnet_feat_map], dim=1)
-        fused_feat_map = self.proj(fused_feat_map)
-        global_feat = F.adaptive_avg_pool2d(fused_feat_map, 1).view(fused_feat_map.size(0), -1)
+        # 分割双目图像
+        b, c, h, w = x.shape
+        left_img = x[:, :, :, :w//2]  # 左眼图像 [batch_size, 3, 256, 256]
+        right_img = x[:, :, :, w//2:]  # 右眼图像 [batch_size, 3, 256, 256]
+
+        # 分别提取左右眼特征
+        left_feat = self.efficientnet.extract_features(left_img)  # [batch_size, 2048, H, W]
+        right_feat = self.efficientnet.extract_features(right_img)  # [batch_size, 2048, H, W]
+
+        # 确保左右眼特征图空间尺寸一致
+        if left_feat.size()[2:] != right_feat.size()[2:]:
+            target_size = (min(left_feat.size(2), right_feat.size(2)),
+                           min(left_feat.size(3), right_feat.size(3)))
+            left_feat = F.interpolate(left_feat, size=target_size, mode='bilinear', align_corners=False)
+            right_feat = F.interpolate(right_feat, size=target_size, mode='bilinear', align_corners=False)
+
+        # 在通道维度上拼接左右眼特征
+        fused_feat_map = torch.cat([left_feat, right_feat], dim=1)  # [batch_size, 4096, H, W]
+
+        # 通过1x1卷积投影到指定维度
+        fused_feat_map = self.proj(fused_feat_map)  # [batch_size, output_dim, H, W]
+
+        # 全局池化生成全局特征
+        global_feat = F.adaptive_avg_pool2d(fused_feat_map, 1).view(fused_feat_map.size(0), -1)  # [batch_size, output_dim]
+
         return fused_feat_map, global_feat
 
 class SEBlock(nn.Module):
@@ -161,13 +169,12 @@ class MultiModalNet(nn.Module):
         self.register_buffer('kg_embeddings', kg_embeddings.detach().clone())
         self.register_buffer('A', adjacency_matrix.detach().clone())
         self.feature_dim = 2048
-        self.spatial_height = 6  # 修改为长方形 [6, 12]
-        self.spatial_width = 12  # 修改为长方形 [6, 12]
+        self.spatial_height = 8  # 修改为 [8, 8]
+        self.spatial_width = 8   # 修改为 [8, 8]
         self.num_diseases = len(disease_cols)
         self.kg_embedding_dim = kg_embeddings.size(1)  # 256
 
         self.feature_extractor = HybridFeatureExtractor(output_dim=self.feature_dim)
-        self.feature_extractor.densenet = self.feature_extractor.densenet.to(kg_embeddings.device)
         self.feature_extractor.efficientnet = self.feature_extractor.efficientnet.to(kg_embeddings.device)
 
         self.se_block = SEBlock(self.feature_dim)
@@ -265,19 +272,19 @@ class MultiModalNet(nn.Module):
         torch.cuda.empty_cache()
         gc.collect()
 
-        # 调整为 [6, 12]
+        # 调整为 [8, 8]
         if img_feat.shape[2:] != (self.spatial_height, self.spatial_width):
             img_feat = F.interpolate(img_feat, size=(self.spatial_height, self.spatial_width),
                                      mode='bilinear', align_corners=False)
 
-        # 更新位置编码为 [6, 12]
+        # 更新位置编码为 [8, 8]
         pos_enc = self.generate_pos_encoding(channels=self.feature_dim, height=self.spatial_height,
                                              width=self.spatial_width, device=device)
         pos_enc = pos_enc.expand(batch_size, -1, -1, -1)
         img_feat = img_feat + pos_enc
 
-        # 序列长度变为 6*12=72
-        img_seq = img_feat.view(batch_size, self.feature_dim, -1).permute(2, 0, 1)  # [72, batch_size, 2048]
+        # 序列长度变为 8*8=64
+        img_seq = img_feat.view(batch_size, self.feature_dim, -1).permute(2, 0, 1)  # [64, batch_size, 2048]
         img_seq = self.img_transformer(img_seq, batch_idx=batch_idx)
 
         del img_feat, pos_enc
@@ -292,7 +299,7 @@ class MultiModalNet(nn.Module):
         else:
             fused_seq = img_seq
 
-        # 调整回 [batch_size, feature_dim, 6, 12]
+        # 调整回 [batch_size, feature_dim, 8, 8]
         fused_feat = fused_seq.permute(1, 2, 0).view(batch_size, self.feature_dim, self.spatial_height, self.spatial_width)
         attn_map = self.spatial_pool(fused_feat)
         attn_sum = attn_map.sum(dim=[2, 3])
